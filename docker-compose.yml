@@ -1,14 +1,19 @@
 services:
-  dabi-stream-brain:
-    build: ./dabi-stream-brain
+dabi-stream-brain:
+    build:
+      context: .
+      dockerfile: dabi-stream-brain/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
       RABBITMQ_URL: amqp://overlay:strongpassword@rabbitmq:5672/
     networks:
       - twitchbroadcaster_net
+    volumes:
+      - ./dabi-stream-brain:/app
+      - ./shared:/app/shared
 
-  dabi-chatroom-brain:
+dabi-chatroom-brain:
     build: ./dabi-chatroom-brain
     restart: unless-stopped
     env_file: .env
