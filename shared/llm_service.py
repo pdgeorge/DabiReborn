@@ -17,7 +17,14 @@ No markdown, no bullet points, no formatting. Just natural spoken responses."""
 
 
 class LLMService:
-    def __init__(self, system_prompt: str = DABI_SYSTEM_PROMPT):
+    def __init__(self, system_json_path: str = "dabi/system.json"):
+        with open(system_json_path, "r") as f:
+            data = json.load(f)
+        
+        self.name = data["name"]
+        self.voice_service = data["voice_service"]
+        self.voice = data["voice"]
+        self.system_prompt = data["system"]
         self.client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         self.system_prompt = system_prompt
         self.history = []
