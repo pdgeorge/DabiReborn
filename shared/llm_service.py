@@ -6,20 +6,21 @@ Swap models by changing MODEL. Everything else stays the same.
 """
 
 import os
+import json
 from anthropic import Anthropic
 
 MODEL = "claude-haiku-4-5-20251001"
 
-DABI_SYSTEM_PROMPT = """You are Dabi, a derpy white unicorn with a black mane featuring a red streak.
-You are a Twitch stream companion. You are cheerful, a little chaotic, and endearing.
-Keep responses short and conversational — you are speaking out loud to a live stream audience.
-No markdown, no bullet points, no formatting. Just natural spoken responses."""
-
-
 class LLMService:
-    def __init__(self, system_prompt: str = DABI_SYSTEM_PROMPT):
+    def __init__(self, system_json_path: str = "shared/dabi.json"):
+        with open(system_json_path, "r") as f:
+            data = json.load(f)
+        
+        self.name = data["name"]
+        self.voice_service = data["voice_service"]
+        self.voice = data["voice"]
+        self.system_prompt = data["system"]
         self.client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        self.system_prompt = system_prompt
         self.history = []
 
     def chat(self, user_message: str) -> str:

@@ -12,6 +12,10 @@ import asyncio
 import json
 import sys
 import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../shared"))
+from tts_service import TTSService
+import vlc
+import time
 
 import aio_pika
 from dotenv import load_dotenv
@@ -44,6 +48,7 @@ async def main(chat_text: str):
     connection = await aio_pika.connect_robust(RABBITMQ_URL)
     async with connection:
         channel = await connection.channel()
+        tts = TTSService()
 
         # Outbound — publish fake Twitch event
         twitch_exchange = await channel.declare_exchange(
@@ -72,7 +77,17 @@ async def main(chat_text: str):
             async for msg in queue_iter:
                 async with msg.process():
                     body = json.loads(msg.body)
-                    print(f"\nDabi says: {body.get('text', '???')}\n")
+                    dabi_message = body.get('text', '???')
+                    print(f"\nDabi says: {dabi_message}\n")
+                    
+                    # Generate and play TTS
+                    path, duration = await tts.generate(dabi_message, engine="edge", voice="en-GB-RyanNeural")
+                    if path:
+                        player = vlc.MediaPlayer(path)
+                        player.play()
+                        time.sleep(duration + 0.5)
+                        player.release()
+                        os.unlink(path)
                     return
 
 

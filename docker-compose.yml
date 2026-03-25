@@ -1,5 +1,5 @@
 services:
-dabi-stream-brain:
+  dabi-stream-brain:
     build:
       context: .
       dockerfile: dabi-stream-brain/Dockerfile
@@ -13,7 +13,7 @@ dabi-stream-brain:
       - ./dabi-stream-brain:/app
       - ./shared:/app/shared
 
-dabi-chatroom-brain:
+  dabi-chatroom-brain:
     build: ./dabi-chatroom-brain
     restart: unless-stopped
     env_file: .env
