@@ -6,6 +6,7 @@ Swap models by changing MODEL. Everything else stays the same.
 """
 
 import os
+import json
 from anthropic import Anthropic
 
 MODEL = "claude-haiku-4-5-20251001"
