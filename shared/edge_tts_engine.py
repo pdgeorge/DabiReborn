@@ -35,25 +35,17 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_VOICE = "en-GB-RyanNeural"
 
 
-def edge_tts(
+async def edge_tts(
     text: str,
     voice: str = DEFAULT_VOICE,
     filename: str = "voice.mp3",
 ) -> tuple[str, int] | tuple[None, None]:
-    """
-    Generate TTS audio using Microsoft Edge TTS.
-
-    Returns:
-        (filename, duration_seconds) on success
-        (None, None) on failure
-    """
     try:
-        asyncio.run(_generate(text, voice, filename))
+        await _generate(text, voice, filename)
     except Exception as e:
         LOGGER.error("Edge TTS generation failed: %s", e)
         return None, None
 
-    # Get duration via ffprobe
     try:
         result = subprocess.run(
             [

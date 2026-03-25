@@ -86,18 +86,19 @@ class TTSService:
             return None, None
         return path, duration
 
-    def _generate_edge(self, text: str, voice: str, output_path: str):
+    async def _generate_edge(self, text: str, voice: str, output_path: str):
         if self._edge is None:
-            from edge_tts import edge_tts
+            from edge_tts_engine import edge_tts
             self._edge = edge_tts
 
-        path, duration = self._edge(text=text, voice=voice, filename=output_path)
+        path, duration = await self._edge(text=text, voice=voice, filename=output_path)
         if path is None:
             LOGGER.error("Edge TTS failed for text: %s", text[:50])
             return None, None
         return path, duration
 
-    def _generate_tiktok(self, text: str, voice: str, output_path: str):        session_id = os.getenv("TIKTOK_TOKEN")
+    def _generate_tiktok(self, text: str, voice: str, output_path: str):        
+        session_id = os.getenv("TIKTOK_TOKEN")
         if not session_id:
             LOGGER.error("TIKTOK_TOKEN not set in environment")
             return None, None
