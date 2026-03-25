@@ -27,7 +27,6 @@ class LLMService:
         self.voice = data["voice"]
         self.system_prompt = data["system"]
         self.client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        self.system_prompt = system_prompt
         self.history = []
 
     def chat(self, user_message: str) -> str:
