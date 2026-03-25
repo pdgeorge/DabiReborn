@@ -17,7 +17,7 @@ No markdown, no bullet points, no formatting. Just natural spoken responses."""
 
 
 class LLMService:
-    def __init__(self, system_json_path: str = "dabi/system.json"):
+    def __init__(self, system_json_path: str = "dabi.json"):
         with open(system_json_path, "r") as f:
             data = json.load(f)
         
