@@ -50,7 +50,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shared"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "shared"))
 from tts_service import TTSService
 
 # ---------------------------------------------------------------------------
