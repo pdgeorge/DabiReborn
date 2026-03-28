@@ -3,32 +3,32 @@ discord_bot.py
 --------------
 Dabi's Discord presence.
 
-- Consumes `dabi.tts.ready` from RabbitMQ → generates TTS → plays in voice
-- Publishes `dabi.discord.message` to RabbitMQ when a message is sent in #dabi-talks
-- Voice STT via Whisper (py-cord)
+- Receives messages in the configured channel → publishes dabi.discord.message to RabbitMQ
+- Consumes dabi.discord.response from RabbitMQ → sends text reply to channel
+- Consumes dabi.tts.ready from RabbitMQ → plays TTS in voice (when voice works)
 
 RabbitMQ:
-  Inbound:  dabi_events (fanout), event type: dabi.tts.ready, payload: {"text": "..."}
-  Outbound: dabi_events (fanout), event type: dabi.discord.message, payload: {"text": "...", "username": "..."}
+  Inbound:  dabi_events (fanout)
+            - dabi.tts.ready        → {"text": "..."}
+            - dabi.discord.response → {"text": "..."}
+  Outbound: dabi_events (fanout)
+            - dabi.discord.message  → {"text": "...", "username": "...", "images": [...]}
 
 Slash commands:
-  /join              — join the voice channel of the user (role gated)
-  /leave             — leave voice channel (role gated)
-  /fix_voice         — force reset voice state then rejoin
-  /ping              — sanity check
-  /test              — debug voice state info
-  /queue_length      — how many TTS items are queued
-  /transcribe        — one-shot STT recording
-  /start_listening   — enable continuous STT
-  /stop_listening    — disable continuous STT
+  /join          — join the voice channel of the user (role gated)
+  /leave         — leave voice channel (role gated)
+  /fix_voice     — force reset voice state then rejoin
+  /ping          — sanity check
+  /test          — debug voice state info
+  /queue_length  — how many TTS items are queued
 
 .env keys:
   DISCORD_TOKEN
   DISCORD_GUILD_ID
   RABBITMQ_URL
-  DABI_EXCHANGE           (default: dabi_events)
-  DISCORD_REQUIRED_ROLE   (default: TheGuyInChargeIGuess)
-  TIKTOK_TOKEN
+  DABI_EXCHANGE             (default: dabi_events)
+  DISCORD_REQUIRED_ROLE     (default: TheGuyInChargeIGuess)
+  DISCORD_LISTEN_CHANNEL    (default: dabi-test)
 """
 
 import asyncio
@@ -37,14 +37,10 @@ import logging
 import os
 import queue
 import sys
-import tempfile
-import threading
 from pathlib import Path
 
 import aio_pika
 import discord
-import torch
-import whisper
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -70,33 +66,10 @@ DISCORD_GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))
 RABBITMQ_URL     = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 DABI_EXCHANGE    = os.getenv("DABI_EXCHANGE", "dabi_events")
 REQUIRED_ROLE    = os.getenv("DISCORD_REQUIRED_ROLE", "TheGuyInChargeIGuess")
+LISTEN_CHANNEL   = os.getenv("DISCORD_LISTEN_CHANNEL", "dabi-test")
 
 TMP_DIR = Path("./tmp")
 TMP_DIR.mkdir(exist_ok=True)
-
-# ---------------------------------------------------------------------------
-# Whisper STT
-# ---------------------------------------------------------------------------
-_whisper_model = None
-
-def _get_whisper_model():
-    global _whisper_model
-    if _whisper_model is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        LOGGER.info("Loading Whisper model on %s", device)
-        torch.set_num_threads(1)
-        _whisper_model = whisper.load_model("base", device=device)
-    return _whisper_model
-
-def _transcribe_sync(path: Path) -> str:
-    return _get_whisper_model().transcribe(str(path))["text"].strip()
-
-async def transcribe_async(path: Path, timeout: int = 120) -> str:
-    loop = asyncio.get_running_loop()
-    return await asyncio.wait_for(
-        loop.run_in_executor(None, _transcribe_sync, path),
-        timeout=timeout,
-    )
 
 # ---------------------------------------------------------------------------
 # Bot setup
@@ -109,7 +82,6 @@ bot = discord.Bot(intents=intents)
 
 tts = TTSService()
 audio_queue: queue.Queue = queue.Queue()
-listening_flag: bool = False
 
 # ---------------------------------------------------------------------------
 # Voice helpers
@@ -122,27 +94,10 @@ async def hard_reset_voice_state(guild: discord.Guild) -> None:
     await asyncio.sleep(0.6)
 
 
-async def ensure_voice(ctx: discord.ApplicationContext):
-    if not ctx.author.voice:
-        await ctx.respond("You aren't in a voice channel!", ephemeral=True)
-        return None
-    try:
-        vc = ctx.guild.voice_client
-        if not vc or not vc.is_connected():
-            await hard_reset_voice_state(ctx.guild)
-            vc = await ctx.author.voice.channel.connect(reconnect=False, timeout=30.0)
-            await asyncio.sleep(1.0)
-        return vc
-    except Exception as e:
-        LOGGER.error("ensure_voice failed: %s", e)
-        await ctx.respond(f"Voice connect failed: `{e}`", ephemeral=True)
-        return None
-
-
 async def play_tts(text: str) -> None:
     """Generate TTS for text and queue it for playback."""
     try:
-        path, _ = tts.generate(text)
+        path, _ = await tts.generate(text)
         if path:
             audio_queue.put(path)
             LOGGER.info("Queued TTS audio: %s", path)
@@ -150,42 +105,10 @@ async def play_tts(text: str) -> None:
         LOGGER.error("TTS generation failed: %s", e)
 
 
-async def do_transcribe(ctx: discord.ApplicationContext, seconds: int) -> None:
-    """Record voice channel audio and publish transcription to RabbitMQ."""
-    if not ctx.author.voice:
-        await ctx.respond("You aren't in a voice channel.", ephemeral=True)
-        return
-
-    vc = ctx.guild.voice_client
-    if not vc or not vc.is_connected():
-        vc = await ctx.author.voice.channel.connect()
-
-    sink = discord.sinks.WaveSink()
-
-    async def on_finish(sink: discord.sinks.Sink, *args):
-        for uid, audio in sink.audio_data.items():
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=TMP_DIR) as tmp:
-                audio.file.seek(0)
-                tmp.write(audio.file.read())
-                wav_path = Path(tmp.name)
-
-            text = await transcribe_async(wav_path)
-            wav_path.unlink(missing_ok=True)
-
-            user = await bot.fetch_user(uid)
-            if text:
-                LOGGER.info("STT [%s]: %s", user.display_name, text)
-                await _publish_discord_message(user.display_name, text)
-
-    vc.start_recording(sink, on_finish)
-    await asyncio.sleep(seconds)
-    vc.stop_recording()
-
-
 # ---------------------------------------------------------------------------
 # RabbitMQ
 # ---------------------------------------------------------------------------
-async def _publish_discord_message(username: str, text: str) -> None:
+async def _publish_discord_message(username: str, text: str, images: list = None) -> None:
     """Publish a dabi.discord.message event to RabbitMQ."""
     try:
         connection = await aio_pika.connect_robust(RABBITMQ_URL)
@@ -194,7 +117,11 @@ async def _publish_discord_message(username: str, text: str) -> None:
             exchange = await channel.declare_exchange(
                 DABI_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
             )
-            payload = json.dumps({"username": username, "text": text}).encode()
+            payload = json.dumps({
+                "username": username,
+                "text": text,
+                "images": images or [],
+            }).encode()
             message = aio_pika.Message(body=payload, type="dabi.discord.message")
             await exchange.publish(message, routing_key="")
             LOGGER.info("Published dabi.discord.message from %s", username)
@@ -202,8 +129,24 @@ async def _publish_discord_message(username: str, text: str) -> None:
         LOGGER.error("Failed to publish discord message: %s", e)
 
 
+async def _send_discord_response(text: str) -> None:
+    """Send Dabi's text response back to the configured listen channel."""
+    guild = bot.get_guild(DISCORD_GUILD_ID)
+    if not guild:
+        LOGGER.error("Guild %s not found", DISCORD_GUILD_ID)
+        return
+
+    channel = discord.utils.get(guild.text_channels, name=LISTEN_CHANNEL)
+    if not channel:
+        LOGGER.error("Channel #%s not found", LISTEN_CHANNEL)
+        return
+
+    await channel.send(text)
+    LOGGER.info("Sent Discord response to #%s", LISTEN_CHANNEL)
+
+
 async def _rabbitmq_consumer() -> None:
-    """Consume dabi.tts.ready events and queue audio for playback."""
+    """Consume dabi_events — handles dabi.tts.ready and dabi.discord.response."""
     LOGGER.info("Connecting RabbitMQ consumer...")
     while True:
         try:
@@ -214,22 +157,30 @@ async def _rabbitmq_consumer() -> None:
                 exchange = await channel.declare_exchange(
                     DABI_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
                 )
-                q = await channel.declare_queue("dabi_discord_tts", durable=True)
+                q = await channel.declare_queue("dabi_discord_inbound", durable=True)
                 await q.bind(exchange)
                 LOGGER.info("RabbitMQ consumer ready")
 
                 async with q.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():
-                            if message.type != "dabi.tts.ready":
-                                continue
+                            event_type = message.type or "unknown"
                             try:
                                 payload = json.loads(message.body)
-                                text = payload.get("text", "")
-                                if text:
-                                    await play_tts(text)
                             except json.JSONDecodeError:
-                                LOGGER.warning("Invalid JSON in dabi.tts.ready message")
+                                LOGGER.warning("Invalid JSON in message body")
+                                continue
+
+                            text = payload.get("text", "")
+                            if not text:
+                                continue
+
+                            if event_type == "dabi.tts.ready":
+                                # TODO: play in voice when Discord voice is fixed
+                                await play_tts(text)
+
+                            elif event_type == "dabi.discord.response":
+                                await _send_discord_response(text)
 
         except Exception as e:
             LOGGER.error("RabbitMQ consumer error: %s — retrying in 5s", e)
@@ -237,7 +188,7 @@ async def _rabbitmq_consumer() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Audio playback loop
+# Audio playback loop (voice — parked until Discord voice is fixed)
 # ---------------------------------------------------------------------------
 async def _audio_playback_loop() -> None:
     """Drain the audio queue and play files into the voice channel."""
@@ -269,6 +220,7 @@ async def _audio_playback_loop() -> None:
 @bot.event
 async def on_ready():
     LOGGER.info("Logged in as %s (%s)", bot.user, bot.user.id)
+    LOGGER.info("Listening in #%s", LISTEN_CHANNEL)
     await bot.sync_commands()
     asyncio.create_task(_rabbitmq_consumer())
     asyncio.create_task(_audio_playback_loop())
@@ -278,8 +230,11 @@ async def on_ready():
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
-    if message.channel.name == "dabi-talks":
-        await _publish_discord_message(message.author.display_name, message.content)
+    if message.channel.name != LISTEN_CHANNEL:
+        return
+
+    # TODO: handle image attachments (base64 encode and pass in images list)
+    await _publish_discord_message(message.author.display_name, message.content)
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +243,10 @@ async def on_message(message: discord.Message):
 @bot.slash_command(name="join", description="Dabi joins your voice channel")
 @commands.has_any_role(REQUIRED_ROLE)
 async def join(ctx: discord.ApplicationContext):
-    vc = await ensure_voice(ctx)
+    if not ctx.author.voice:
+        await ctx.respond("You aren't in a voice channel!", ephemeral=True)
+        return
+    vc = await ctx.author.voice.channel.connect()
     if vc:
         await ctx.respond(f"Joined **{vc.channel.name}**!")
 
@@ -310,7 +268,7 @@ async def fix_voice(ctx: discord.ApplicationContext):
     await hard_reset_voice_state(ctx.guild)
     await asyncio.sleep(0.5)
     if ctx.author.voice:
-        vc = await ensure_voice(ctx)
+        vc = await ctx.author.voice.channel.connect()
         if vc:
             await ctx.followup.send("Reconnected ✅")
         else:
@@ -333,32 +291,6 @@ async def test(ctx: discord.ApplicationContext):
 @bot.slash_command(name="queue_length", description="How many TTS items are queued?")
 async def queue_length_cmd(ctx: discord.ApplicationContext):
     await ctx.respond(f"There are **{audio_queue.qsize()}** items in the audio queue.")
-
-
-@bot.slash_command(name="transcribe", description="Record and transcribe voice channel")
-@commands.has_any_role(REQUIRED_ROLE)
-async def transcribe(
-    ctx: discord.ApplicationContext,
-    seconds: discord.Option(int, "Seconds to record (1-120)", default=10, min_value=1, max_value=120),  # type: ignore
-):
-    await ctx.respond(f"Recording for **{seconds}s**...")
-    await do_transcribe(ctx, seconds)
-
-
-@bot.slash_command(name="start_listening", description="Enable continuous STT")
-@commands.has_any_role(REQUIRED_ROLE)
-async def start_listening(ctx: discord.ApplicationContext):
-    global listening_flag
-    listening_flag = True
-    await ctx.respond("Now listening and transcribing.")
-
-
-@bot.slash_command(name="stop_listening", description="Disable continuous STT")
-@commands.has_any_role(REQUIRED_ROLE)
-async def stop_listening(ctx: discord.ApplicationContext):
-    global listening_flag
-    listening_flag = False
-    await ctx.respond("Stopped listening.")
 
 
 # ---------------------------------------------------------------------------
