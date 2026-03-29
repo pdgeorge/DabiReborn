@@ -233,8 +233,22 @@ async def on_message(message: discord.Message):
     if message.channel.name != LISTEN_CHANNEL:
         return
 
-    # TODO: handle image attachments (base64 encode and pass in images list)
-    await _publish_discord_message(message.author.display_name, message.content)
+    images = []
+    for attachment in message.attachments:
+        # Only process image attachments
+        if not attachment.content_type or not attachment.content_type.startswith("image/"):
+            continue
+        try:
+            import base64
+            image_bytes = await attachment.read()
+            images.append({
+                "data": base64.b64encode(image_bytes).decode("utf-8"),
+                "media_type": attachment.content_type.split(";")[0],  # strip charset if present
+            })
+        except Exception as e:
+            LOGGER.error("Failed to read attachment %s: %s", attachment.filename, e)
+
+    await _publish_discord_message(message.author.display_name, message.content, images)
 
 
 # ---------------------------------------------------------------------------

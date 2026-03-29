@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Allow shared/ imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shared"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "shared"))
 
 from llm_service import LLMService
 from router import route
