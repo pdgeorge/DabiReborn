@@ -26,12 +26,17 @@ Slash commands:
   DISCORD_TOKEN
   DISCORD_GUILD_ID
   RABBITMQ_URL
-  DABI_EXCHANGE             (default: dabi_events)
-  DISCORD_REQUIRED_ROLE     (default: TheGuyInChargeIGuess)
-  DISCORD_LISTEN_CHANNEL    (default: dabi-test)
+  DABI_EXCHANGE               (default: dabi_events)
+  DISCORD_REQUIRED_ROLE       (default: TheGuyInChargeIGuess)
+  DISCORD_LISTEN_CHANNEL      (default: dabi-test)
+  MAX_ATTACHMENT_BYTES        (default: 8000000 = 8MB)
+  SIZE_EXCEEDED_MESSAGE       (default: built-in Dabi response)
+  MAX_GIF_FRAMES              (default: 8)
 """
 
 import asyncio
+import base64
+import io
 import json
 import logging
 import os
@@ -43,6 +48,7 @@ import aio_pika
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+from PIL import Image
 
 load_dotenv()
 
@@ -61,12 +67,18 @@ LOGGER = logging.getLogger("dabi-discord")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-DISCORD_TOKEN    = os.getenv("DISCORD_TOKEN")
-DISCORD_GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))
-RABBITMQ_URL     = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-DABI_EXCHANGE    = os.getenv("DABI_EXCHANGE", "dabi_events")
-REQUIRED_ROLE    = os.getenv("DISCORD_REQUIRED_ROLE", "TheGuyInChargeIGuess")
-LISTEN_CHANNEL   = os.getenv("DISCORD_LISTEN_CHANNEL", "dabi-test")
+DISCORD_TOKEN         = os.getenv("DISCORD_TOKEN")
+DISCORD_GUILD_ID      = int(os.getenv("DISCORD_GUILD_ID", 0))
+RABBITMQ_URL          = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+DABI_EXCHANGE         = os.getenv("DABI_EXCHANGE", "dabi_events")
+REQUIRED_ROLE         = os.getenv("DISCORD_REQUIRED_ROLE", "TheGuyInChargeIGuess")
+LISTEN_CHANNEL        = os.getenv("DISCORD_LISTEN_CHANNEL", "dabi-test")
+MAX_ATTACHMENT_BYTES  = int(os.getenv("MAX_ATTACHMENT_BYTES", 8_000_000))
+MAX_GIF_FRAMES        = int(os.getenv("MAX_GIF_FRAMES", 8))
+SIZE_EXCEEDED_MESSAGE = os.getenv(
+    "SIZE_EXCEEDED_MESSAGE",
+    "That image is far too large for my refined sensibilities. Perhaps something smaller next time."
+)
 
 TMP_DIR = Path("./tmp")
 TMP_DIR.mkdir(exist_ok=True)
@@ -83,8 +95,70 @@ bot = discord.Bot(intents=intents)
 tts = TTSService()
 audio_queue: queue.Queue = queue.Queue()
 
+
 # ---------------------------------------------------------------------------
-# helpers
+# Image helpers
+# ---------------------------------------------------------------------------
+def _detect_media_type(image_bytes: bytes) -> str:
+    """Detect image media type from magic bytes rather than trusting Discord."""
+    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    elif image_bytes[:3] == b'\xff\xd8\xff':
+        return "image/jpeg"
+    elif image_bytes[:6] in (b'GIF87a', b'GIF89a'):
+        return "image/gif"
+    elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+        return "image/webp"
+    return "image/png"  # fallback
+
+
+def _extract_gif_frames(gif_bytes: bytes) -> list[dict]:
+    """
+    Extract up to MAX_GIF_FRAMES frames from a GIF.
+    Always includes first and last frame, with evenly spaced frames in between.
+    Returns a list of image dicts ready to pass to LLMService.
+    """
+    try:
+        gif = Image.open(io.BytesIO(gif_bytes))
+        frames = []
+        try:
+            while True:
+                frames.append(gif.copy().convert("RGB"))
+                gif.seek(gif.tell() + 1)
+        except EOFError:
+            pass
+
+        total = len(frames)
+        if total <= MAX_GIF_FRAMES:
+            selected = frames
+        else:
+            # Always include first and last, evenly space the rest
+            indices = [0]
+            step = (total - 1) / (MAX_GIF_FRAMES - 1)
+            for i in range(1, MAX_GIF_FRAMES - 1):
+                indices.append(round(i * step))
+            indices.append(total - 1)
+            selected = [frames[i] for i in sorted(set(indices))]
+
+        LOGGER.info("GIF: %d total frames, sending %d", total, len(selected))
+
+        result = []
+        for frame in selected:
+            buf = io.BytesIO()
+            frame.save(buf, format="PNG")
+            result.append({
+                "data": base64.b64encode(buf.getvalue()).decode("utf-8"),
+                "media_type": "image/png",
+            })
+        return result
+
+    except Exception as e:
+        LOGGER.error("Failed to extract GIF frames: %s", e)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Voice helpers
 # ---------------------------------------------------------------------------
 async def hard_reset_voice_state(guild: discord.Guild) -> None:
     try:
@@ -103,19 +177,6 @@ async def play_tts(text: str) -> None:
             LOGGER.info("Queued TTS audio: %s", path)
     except Exception as e:
         LOGGER.error("TTS generation failed: %s", e)
-
-
-def _detect_media_type(image_bytes: bytes) -> str:
-    """Detect image media type from magic bytes rather than trusting Discord."""
-    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-        return "image/png"
-    elif image_bytes[:3] == b'\xff\xd8\xff':
-        return "image/jpeg"
-    elif image_bytes[:6] in (b'GIF87a', b'GIF89a'):
-        return "image/gif"
-    elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
-        return "image/webp"
-    return "image/png"  # fallback
 
 
 # ---------------------------------------------------------------------------
@@ -248,16 +309,27 @@ async def on_message(message: discord.Message):
 
     images = []
     for attachment in message.attachments:
-        # Only process image attachments
         if not attachment.content_type or not attachment.content_type.startswith("image/"):
             continue
+
+        # Size check before downloading
+        if attachment.size > MAX_ATTACHMENT_BYTES:
+            LOGGER.warning("Attachment too large: %s (%d bytes)", attachment.filename, attachment.size)
+            await message.channel.send(SIZE_EXCEEDED_MESSAGE)
+            return
+
         try:
-            import base64
             image_bytes = await attachment.read()
-            images.append({
-                "data": base64.b64encode(image_bytes).decode("utf-8"),
-                "media_type": _detect_media_type(image_bytes),  # strip charset if present
-            })
+            media_type = _detect_media_type(image_bytes)
+
+            if media_type == "image/gif":
+                gif_frames = _extract_gif_frames(image_bytes)
+                images.extend(gif_frames)
+            else:
+                images.append({
+                    "data": base64.b64encode(image_bytes).decode("utf-8"),
+                    "media_type": media_type,
+                })
         except Exception as e:
             LOGGER.error("Failed to read attachment %s: %s", attachment.filename, e)
 
