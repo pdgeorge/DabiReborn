@@ -77,7 +77,11 @@ async def main():
                     LOGGER.warning("Invalid JSON in message body")
                     return
 
-                response_text, response_event_type = route(event_type, payload, services)
+                try:
+                    response_text, response_event_type = route(event_type, payload, services)
+                except Exception as e:
+                    LOGGER.error("Handler error for %s: %s", event_type, e)
+                    return
 
                 if response_text and response_event_type:
                     out = aio_pika.Message(

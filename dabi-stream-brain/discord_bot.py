@@ -84,7 +84,7 @@ tts = TTSService()
 audio_queue: queue.Queue = queue.Queue()
 
 # ---------------------------------------------------------------------------
-# Voice helpers
+# helpers
 # ---------------------------------------------------------------------------
 async def hard_reset_voice_state(guild: discord.Guild) -> None:
     try:
@@ -103,6 +103,19 @@ async def play_tts(text: str) -> None:
             LOGGER.info("Queued TTS audio: %s", path)
     except Exception as e:
         LOGGER.error("TTS generation failed: %s", e)
+
+
+def _detect_media_type(image_bytes: bytes) -> str:
+    """Detect image media type from magic bytes rather than trusting Discord."""
+    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    elif image_bytes[:3] == b'\xff\xd8\xff':
+        return "image/jpeg"
+    elif image_bytes[:6] in (b'GIF87a', b'GIF89a'):
+        return "image/gif"
+    elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+        return "image/webp"
+    return "image/png"  # fallback
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +256,7 @@ async def on_message(message: discord.Message):
             image_bytes = await attachment.read()
             images.append({
                 "data": base64.b64encode(image_bytes).decode("utf-8"),
-                "media_type": attachment.content_type.split(";")[0],  # strip charset if present
+                "media_type": _detect_media_type(image_bytes),  # strip charset if present
             })
         except Exception as e:
             LOGGER.error("Failed to read attachment %s: %s", attachment.filename, e)
