@@ -146,10 +146,10 @@ def _extract_gif_frames(gif_bytes: bytes) -> list[dict]:
         for frame in selected:
             buf = io.BytesIO()
             frame.thumbnail((512, 512), Image.LANCZOS)
-            frame.save(buf, format="PNG")
+            frame.save(buf, format="JPEG", quality=75)
             result.append({
                 "data": base64.b64encode(buf.getvalue()).decode("utf-8"),
-                "media_type": "image/png",
+                "media_type": "image/jpeg",
             })
         return result
 
