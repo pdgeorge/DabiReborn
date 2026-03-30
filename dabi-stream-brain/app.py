@@ -32,12 +32,14 @@ LOGGER = logging.getLogger("dabi-stream-brain")
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 TWITCH_EXCHANGE = os.getenv("RABBITMQ_EXCHANGE", "twitch_events")
 DABI_EXCHANGE = os.getenv("DABI_EXCHANGE", "dabi_events")
-QUEUE_NAME = "dabi_stream_brain"
+TWITCH_QUEUE_NAME = "dabi_stream_brain"
+DABI_QUEUE_NAME = "dabi_stream_brain_inbound"
 
 
 class Services:
     def __init__(self):
-        self.llm = LLMService()
+        mock = os.getenv("MOCK_LLM", "false").lower() == "true"
+        self.llm = LLMService(mock=mock)
 
 
 async def main():
@@ -54,13 +56,15 @@ async def main():
         twitch_exchange = await channel.declare_exchange(
             TWITCH_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
         )
-        queue = await channel.declare_queue(QUEUE_NAME, durable=True)
-        await queue.bind(twitch_exchange)
+        twitch_queue = await channel.declare_queue(TWITCH_QUEUE_NAME, durable=True)
+        await twitch_queue.bind(twitch_exchange)
 
-        # Outbound — Dabi responses
+        # Inbound — Dabi events (discord messages coming back in)
         dabi_exchange = await channel.declare_exchange(
             DABI_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
         )
+        dabi_queue = await channel.declare_queue(DABI_QUEUE_NAME, durable=True)
+        await dabi_queue.bind(dabi_exchange)
 
         LOGGER.info("Connected. Waiting for events...")
 
@@ -73,17 +77,22 @@ async def main():
                     LOGGER.warning("Invalid JSON in message body")
                     return
 
-                response_text = route(event_type, payload, services)
+                try:
+                    response_text, response_event_type = route(event_type, payload, services)
+                except Exception as e:
+                    LOGGER.error("Handler error for %s: %s", event_type, e)
+                    return
 
-                if response_text:
+                if response_text and response_event_type:
                     out = aio_pika.Message(
                         body=json.dumps({"text": response_text}).encode(),
-                        type="dabi.tts.ready",
+                        type=response_event_type,
                     )
                     await dabi_exchange.publish(out, routing_key="")
-                    LOGGER.info("Published dabi.tts.ready")
+                    LOGGER.info("Published %s", response_event_type)
 
-        await queue.consume(handle_message)
+        await twitch_queue.consume(handle_message)
+        await dabi_queue.consume(handle_message)
         await asyncio.Future()  # run forever
 
 
