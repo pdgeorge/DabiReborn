@@ -23,6 +23,9 @@ services:
       RABBITMQ_URL: amqp://overlay:strongpassword@rabbitmq:5672/
     networks:
       - twitchbroadcaster_net
+    volumes:
+      - ./dabi-stream-brain:/app
+      - ./shared:/app/shared
     command: python discord_bot.py
 
   dabi-chatroom-brain:
