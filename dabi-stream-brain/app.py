@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Allow shared/ imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "shared"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shared"))
 
 from llm_service import LLMService
 from router import route
@@ -81,6 +81,16 @@ async def main():
                     response_text, response_event_type = route(event_type, payload, services)
                 except Exception as e:
                     LOGGER.error("Handler error for %s: %s", event_type, e)
+                    # If an image caused the failure, send a fallback response
+                    if "image" in str(e).lower() or "Could not process" in str(e):
+                        fallback = "I'm terribly sorry but that image appears to be utterly incomprehensible to my refined visual cortex. Perhaps try a different one?"
+                        response_event_type = "dabi.discord.response" if event_type == "dabi.discord.message" else "dabi.tts.ready"
+                        out = aio_pika.Message(
+                            body=json.dumps({"text": fallback}).encode(),
+                            type=response_event_type,
+                        )
+                        await dabi_exchange.publish(out, routing_key="")
+                        LOGGER.info("Published fallback response for failed image")
                     return
 
                 if response_text and response_event_type:

@@ -6,6 +6,7 @@ Swap models by changing MODEL. Everything else stays the same.
 
 Supports optional image input for vision calls.
 Images are passed as base64-encoded bytes with a media type.
+History always stores text only — images are single-use context, never persisted.
 """
 
 import json
@@ -37,6 +38,7 @@ class LLMService:
     def chat(self, user_message: str, images: list = None) -> str:
         """
         Send a message, get a response. Maintains conversation history.
+        History always stores text only — images are single-use context, never stored.
 
         Args:
             user_message: Text to send.
@@ -46,28 +48,38 @@ class LLMService:
 
         Returns:
             Response text.
+
+        Raises:
+            Exception: Re-raises any API error after rolling back history.
         """
         if self.mock:
             LOGGER.info("[MOCK] chat: %s", user_message)
             return "This is a mock response."
 
-        content = _build_content(user_message, images)
-        self.history.append({"role": "user", "content": content})
+        # Always append text-only to history first
+        self.history.append({"role": "user", "content": user_message})
 
-        response = self.client.messages.create(
-            model=MODEL,
-            max_tokens=300,
-            system=self.system_prompt,
-            messages=self.history,
-        )
+        try:
+            # Build content with images for the API call only — not stored in history
+            content = _build_content(user_message, images)
+            messages_to_send = self.history[:-1] + [{"role": "user", "content": content}]
 
-        reply = response.content[0].text
+            response = self.client.messages.create(
+                model=MODEL,
+                max_tokens=300,
+                system=self.system_prompt,
+                messages=messages_to_send,
+            )
 
-        # Store only text in history — images are not kept between turns
-        self.history[-1] = {"role": "user", "content": user_message}
-        self.history.append({"role": "assistant", "content": reply})
+            reply = response.content[0].text
+            self.history.append({"role": "assistant", "content": reply})
+            return reply
 
-        return reply
+        except Exception as e:
+            # Roll back — remove the failed user message from history
+            self.history.pop()
+            LOGGER.error("LLM call failed, history rolled back: %s", e)
+            raise
 
     def single_shot(self, user_message: str, images: list = None) -> str:
         """Send a message with no history. Does not affect conversation state."""
