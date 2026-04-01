@@ -38,10 +38,13 @@ services:
       RABBITMQ_URL: amqp://overlay:strongpassword@rabbitmq:5672/
     networks:
       - twitchbroadcaster_net
+      - dabidotcom_net
     volumes:
       - ./dabi-chatroom-brain:/app
       - ./shared:/app/shared
 
 networks:
   twitchbroadcaster_net:
+    external: true
+  dabidotcom_net:
     external: true

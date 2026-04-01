@@ -60,58 +60,69 @@ async def main():
 
     services = Services()
 
-    connection = await aio_pika.connect_robust(RABBITMQ_URL)
-    async with connection:
-        channel = await connection.channel()
-        await channel.set_qos(prefetch_count=10)
+    try:
+        connection = await aio_pika.connect_robust(RABBITMQ_URL)
+        async with connection:
+            channel = await connection.channel()
+            await channel.set_qos(prefetch_count=10)
 
-        exchange = await channel.declare_exchange(
-            WEBSITE_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
-        )
-        queue = await channel.declare_queue(QUEUE_NAME, durable=True)
-        await queue.bind(exchange)
+            exchange = await channel.declare_exchange(
+                WEBSITE_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
+            )
+            queue = await channel.declare_queue(QUEUE_NAME, durable=True)
+            await queue.bind(exchange)
 
-        LOGGER.info("Connected. Waiting for website chat events...")
+            LOGGER.info("Connected. Waiting for website chat events...")
 
-        async def handle_message(message: aio_pika.abc.AbstractIncomingMessage):
-            async with message.process():
-                event_type = message.type or "unknown"
+            async def handle_message(message: aio_pika.abc.AbstractIncomingMessage):
+                async with message.process():
+                    LOGGER.info(f"RAW type={message.type!r} body={message.body!r}")
+                    event_type = message.type or "unknown"
 
-                if event_type != "website.chat.to_dabi":
-                    return
+                    if event_type != "website.chat.to_dabi":
+                        return
 
-                try:
-                    payload = json.loads(message.body)
-                except json.JSONDecodeError:
-                    LOGGER.warning("Invalid JSON in message body")
-                    return
+                    try:
+                        payload = json.loads(message.body)
+                    except json.JSONDecodeError:
+                        LOGGER.warning("Invalid JSON in message body")
+                        return
 
-                author = payload.get("author", "someone")
-                text = payload.get("text", "").strip()
+                    messages = payload.get("messages", [])
+                    if not messages:
+                        return
 
-                if not text:
-                    return
+                    prompt = "\n".join(
+                        f"{m.get('author', 'someone')}: {m.get('text', '').strip()}"
+                        for m in messages
+                        if m.get("text", "").strip()
+                    )
+                    if not prompt:
+                        return
 
-                LOGGER.info("Website chat from %s: %s", author, text)
+                    LOGGER.info("Website chat batch:\n%s", prompt)
 
-                try:
-                    prompt = f"{author} says: {text}"
-                    response_text = services.llm.chat(prompt)
-                except Exception as e:
-                    LOGGER.error("LLM error: %s", e)
-                    return
+                    try:
+                        response_text = services.llm.chat(prompt)
+                    except Exception as e:
+                        LOGGER.error("LLM error: %s", e)
+                        return
 
-                LOGGER.info("Dabi responds: %s", response_text)
+                    LOGGER.info("Dabi responds: %s", response_text)
 
-                out = aio_pika.Message(
-                    body=json.dumps({"text": response_text}).encode(),
-                    type="website.chat.from_dabi",
-                )
-                await exchange.publish(out, routing_key="")
-                LOGGER.info("Published website.chat.from_dabi")
+                    out = aio_pika.Message(
+                        body=json.dumps({"text": response_text}).encode(),
+                        type="website.chat.from_dabi",
+                    )
+                    await exchange.publish(out, routing_key="")
+                    LOGGER.info("Published website.chat.from_dabi")
 
-        await queue.consume(handle_message)
-        await asyncio.Future()  # run forever
+            await queue.consume(handle_message)  # ← was missing
+            await asyncio.Future()               # ← was missing
+
+    except Exception as e:
+        LOGGER.error("FATAL: %s", e, exc_info=True)
+        raise
 
 
 if __name__ == "__main__":
