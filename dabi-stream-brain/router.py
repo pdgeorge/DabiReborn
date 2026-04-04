@@ -16,7 +16,7 @@ LOGGER = logging.getLogger(__name__)
 
 # Maps event type → (handler, response_event_type)
 HANDLERS = {
-    "channel.chat.message":  (chat_message.handle,    "dabi.tts.ready"),
+    # "channel.chat.message":  (chat_message.handle,    "dabi.tts.ready"),
     "dabi.discord.message":  (discord_message.handle, "dabi.discord.response"),
     # "channel.channel_points_custom_reward_redemption.add": (channel_point.handle, "dabi.tts.ready"),
     # "channel.subscribe": (subscribe.handle, "dabi.tts.ready"),
