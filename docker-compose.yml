@@ -36,6 +36,9 @@ services:
     env_file: .env
     environment:
       RABBITMQ_URL: amqp://overlay:strongpassword@rabbitmq:5672/
+      LLM_BACKEND: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3.2:3b
     networks:
       - twitchbroadcaster_net
       - dabidotcom_net
