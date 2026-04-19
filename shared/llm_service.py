@@ -99,6 +99,7 @@ class LLMService:
             elif self.backend == "ollama":
                 if images:
                     LOGGER.warning("Ollama backend does not yet support images, ignoring")
+                    # TODO: Revisit later. When we add a second image-to-text model
                 # Build messages for Ollama: system prompt as a system message, then history
                 messages = []
                 if self.system_prompt:
@@ -157,6 +158,7 @@ class LLMService:
         elif self.backend == "ollama":
             if images:
                 LOGGER.warning("Ollama backend does not yet support images, ignoring")
+                # TODO: Revisit later. When we add a second image-to-text model
             messages = []
             if self.system_prompt:
                 messages.append({"role": "system", "content": self.system_prompt})
