@@ -1,3 +1,6 @@
+*.db
+*.md
+temp*
 test*
 tmp/
 
