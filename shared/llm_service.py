@@ -112,13 +112,13 @@ class LLMService:
                     "model": OLLAMA_MODEL,
                     "messages": messages,
                     "stream": False,
-                    "options": {"num_predict": 300}  # max tokens equivalent
+                    "options": {"num_predict": 150}  # max tokens equivalent
                 }
                 try:
                     resp = requests.post(
                         f"{OLLAMA_BASE_URL}/api/chat",
                         json=payload,
-                        timeout=60,
+                        timeout=120,
                     )
                     resp.raise_for_status()
                     result = resp.json()
@@ -167,7 +167,7 @@ class LLMService:
                 "model": OLLAMA_MODEL,
                 "messages": messages,
                 "stream": False,
-                "options": {"num_predict": 300}
+                "options": {"num_predict": 150}
             }
             try:
                 resp = requests.post(

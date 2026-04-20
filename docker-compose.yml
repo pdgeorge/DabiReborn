@@ -58,7 +58,8 @@ services:
       - twitchbroadcaster_net
       - dabidotcom_net
 
-volumes: ollama_data
+volumes:
+  ollama_data:
 
 networks:
   twitchbroadcaster_net:
