@@ -25,6 +25,41 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 
 
+def _trim_conversation_history(messages: List[Dict[str, str]], max_messages: int = 8, max_tokens: int = 1200) -> List[Dict[str, str]]:
+    """
+    Trim conversation history to prevent context window explosion on resource-constrained systems.
+    Keeps only the most recent messages that fit within token limits.
+    
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys
+        max_messages: Maximum number of messages to keep (user + assistant pairs)
+        max_tokens: Rough token limit (estimated as chars / 4)
+    
+    Returns:
+        Trimmed list of messages
+    """
+    if len(messages) <= max_messages:
+        # Check if we're still under token limit
+        total_chars = sum(len(str(m.get('content', ''))) for m in messages)
+        if total_chars <= max_tokens * 4:
+            return messages
+    
+    # Keep only last N messages
+    trimmed = messages[-max_messages:]
+    
+    # Rough token estimation (4 chars ≈ 1 token)
+    total_chars = sum(len(str(m.get('content', ''))) for m in trimmed)
+    
+    # Remove oldest messages until we're under the token limit
+    # But always keep at least the last 2 messages (last user + assistant exchange)
+    while total_chars > max_tokens * 4 and len(trimmed) > 2:
+        trimmed.pop(0)  # Remove oldest
+        total_chars = sum(len(str(m.get('content', ''))) for m in trimmed)
+    
+    LOGGER.debug(f"Trimmed history from {len(messages)} to {len(trimmed)} messages (~{total_chars//4} tokens)")
+    return trimmed
+
+
 class LLMService:
     def __init__(self, system_json_path: str = "shared/dabi.json", mock: bool = False):
         with open(system_json_path, "r") as f:
@@ -100,19 +135,27 @@ class LLMService:
                 if images:
                     LOGGER.warning("Ollama backend does not yet support images, ignoring")
                     # TODO: Revisit later. When we add a second image-to-text model
+                
+                # Trim history to prevent context window explosion on Pi
+                trimmed_history = _trim_conversation_history(self.history, max_messages=8, max_tokens=1200)
+                
                 # Build messages for Ollama: system prompt as a system message, then history
                 messages = []
                 if self.system_prompt:
                     messages.append({"role": "system", "content": self.system_prompt})
-                # history already includes the new user message at the end
-                for msg in self.history:
+                # Use trimmed history instead of full history
+                for msg in trimmed_history:
                     messages.append({"role": msg["role"], "content": msg["content"]})
                 # Ensure the last message is the user message (already there)
                 payload = {
                     "model": OLLAMA_MODEL,
                     "messages": messages,
                     "stream": False,
-                    "options": {"num_predict": 150}  # max tokens equivalent
+                    "options": {
+                        "num_predict": 150,  # max tokens equivalent
+                        "num_ctx": 2048,     # Smaller context window for Pi performance
+                    },
+                    "keep_alive": -1  # Keep model loaded in memory
                 }
                 try:
                     resp = requests.post(
