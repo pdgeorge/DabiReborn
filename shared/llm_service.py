@@ -151,6 +151,7 @@ class LLMService:
                     "model": OLLAMA_MODEL,
                     "messages": messages,
                     "stream": False,
+                    "think": False,
                     "options": {
                         "num_predict": 150,  # max tokens equivalent
                         "num_ctx": 2048,     # Smaller context window for Pi performance
@@ -210,7 +211,11 @@ class LLMService:
                 "model": OLLAMA_MODEL,
                 "messages": messages,
                 "stream": False,
-                "options": {"num_predict": 150}
+                "think": False,
+                "options": {
+                    "num_predict": 150,
+                    "temperature": 0.7
+                    }
             }
             try:
                 resp = requests.post(
