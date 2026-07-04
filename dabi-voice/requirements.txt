@@ -1,0 +1,6 @@
+aio-pika
+edge-tts
+fastapi
+uvicorn[standard]
+python-dotenv
+requests

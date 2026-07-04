@@ -23,16 +23,21 @@ These two forms do not share memory, history, or state.
 ```
 dabi/
   shared/              ← Shared classes used across all services
-  stream_client/       ← Runs on local machine while streaming
+  stream_client/       ← Test client on local machine (superseded by dabi-voice for playback)
   dabi-stream-brain/   ← Pi Docker container (Pi App + FastAPI /react + Discord)
   dabi-chatroom-brain/ ← Pi Docker container (Website Dabi brain + FastAPI /chat)
+  dabi-voice/          ← Pi Docker container (Dabi's mouth: TTS + Rhubarb lip sync +
+                          avatar overlay served as an OBS browser source on :8090)
 ```
 
 ### docker-compose.yml (Pi, this repo)
 ```yaml
 services:
   dabi-stream-brain:
+  dabi-discord:
   dabi-chatroom-brain:
+  dabi-voice:
+  ollama:
 ```
 RabbitMQ is not here — it is already running in `twitch-broadcaster`.
 
@@ -57,7 +62,7 @@ Classes consumed across all services.
 
 See `dabi-stream-brain/` and `stream_client/` for full detail.
 
-**Summary:** The brain runs on the Pi (`dabi-stream-brain`), the body runs locally (`stream_client`). They communicate via RabbitMQ. When Dabi needs to speak, `dabi-stream-brain` publishes a `dabi.tts.ready` event carrying the **text**. `stream_client` receives it, generates audio locally via `TTSService`, and plays it via `AudioPlayer` while driving `AvatarService`/OBS.
+**Summary:** The brain runs on the Pi (`dabi-stream-brain`); the body is `dabi-voice`, also on the Pi. When Dabi needs to speak, `dabi-stream-brain` publishes a `dabi.tts.ready` event carrying the **text**. `dabi-voice` consumes it, generates audio via `TTSService` (edge), runs Rhubarb Lip Sync for mouth cues, and pushes audio + cues + caption over WebSocket to an overlay page loaded as an **OBS browser source** — the audio plays and the avatar animates inside OBS on the streaming PC. (This replaces the earlier plan of a local `stream_client` + `AudioPlayer` + `AvatarService`/OBS-websocket; the avatar logic now lives in the overlay's JS, with the PNG mouth-flap renderer to be swapped for the Live2D model.)
 
 **Event sources:**
 - Twitch events → `twitch-broadcaster` → RabbitMQ → `dabi-stream-brain`
@@ -84,8 +89,7 @@ See `dabi-chatroom-brain/` for full detail.
 | RabbitMQ | Pi (`twitch-broadcaster`) |
 | `dabi-stream-brain` | Pi (Docker) |
 | `dabi-chatroom-brain` | Pi (Docker) |
-| DiscordService | Pi (inside `dabi-stream-brain`) |
-| `stream_client` | Local machine (only while streaming) |
-| AudioPlayer | Local machine |
-| AvatarService + OBS | Local machine |
-| Hotkey listener | Local machine |
+| `dabi-voice` (TTS + lip sync + overlay server) | Pi (Docker, :8090) |
+| Discord bot (`dabi-discord`) | Pi (Docker) |
+| Avatar rendering + audio playback | OBS browser source (streaming PC) pointed at `http://<pi>:8090/` |
+| Hotkey listener | Local machine (future) |

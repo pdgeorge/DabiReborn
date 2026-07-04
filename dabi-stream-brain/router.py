@@ -10,7 +10,7 @@ Response routing:
 """
 
 import logging
-from handlers import chat_message, discord_message
+from handlers import chat_message, discord_message, channel_point
 
 LOGGER = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 HANDLERS = {
     # "channel.chat.message":  (chat_message.handle,    "dabi.tts.ready"),
     "dabi.discord.message":  (discord_message.handle, "dabi.discord.response"),
-    # "channel.channel_points_custom_reward_redemption.add": (channel_point.handle, "dabi.tts.ready"),
+    "channel.channel_points_custom_reward_redemption.add": (channel_point.handle, "dabi.tts.ready"),
     # "channel.subscribe": (subscribe.handle, "dabi.tts.ready"),
     # "channel.follow":    (follow.handle,    "dabi.tts.ready"),
 }

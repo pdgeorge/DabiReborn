@@ -1,0 +1,110 @@
+/* Dabi voice overlay — transparent, intended as an OBS browser source.
+   Position/size the avatar by moving the source in OBS; tweak the
+   variables below for in-page adjustments. */
+
+:root {
+  --avatar-size: 400px;
+  --caption-width: 480px;
+  --caption-font: 22px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+#stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 12px;
+}
+
+/* ---- Avatar --------------------------------------------------------- */
+
+#avatar {
+  position: relative;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  transform-origin: 50% 90%;
+}
+
+#avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: none;
+}
+
+#avatar img.visible { display: block; }
+
+#placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--avatar-size) * 0.6);
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+}
+
+/* Idle: slow breathing bob. Talking: livelier bounce (JS adds rotation). */
+#avatar.idle    { animation: breathe 4s ease-in-out infinite; }
+#avatar.talking { animation: bounce 0.45s ease-in-out infinite; }
+
+@keyframes breathe {
+  0%, 100% { transform: translateY(0)    scale(1); }
+  50%      { transform: translateY(-6px) scale(1.01); }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0)    scale(1); }
+  50%      { transform: translateY(-10px) scale(1.03, 0.98); }
+}
+
+/* ---- Caption bubble -------------------------------------------------- */
+
+#caption {
+  max-width: var(--caption-width);
+  margin-bottom: 14px;
+  padding: 12px 18px;
+  background: rgba(20, 20, 30, 0.85);
+  color: #fff;
+  font-size: var(--caption-font);
+  line-height: 1.35;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  text-align: center;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+
+#caption.hidden { opacity: 0; }
+
+/* ---- Audio gate (normal browsers only; OBS autoplays) ---------------- */
+
+#audio-gate {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  background: rgba(200, 40, 40, 0.9);
+  color: #fff;
+  font-size: 15px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.hidden { display: none !important; }

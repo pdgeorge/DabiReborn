@@ -28,6 +28,22 @@ services:
       - ./shared:/app/shared
     command: python discord_bot.py
 
+  dabi-voice:
+    build:
+      context: .
+      dockerfile: dabi-voice/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://overlay:strongpassword@rabbitmq:5672/
+    ports:
+      - "8090:8090"
+    networks:
+      - twitchbroadcaster_net
+    volumes:
+      - ./dabi-voice:/app
+      - ./shared:/app/shared
+
   dabi-chatroom-brain:
     build:
       context: .

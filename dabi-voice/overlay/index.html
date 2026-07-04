@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dabi Voice Overlay</title>
+  <link rel="stylesheet" href="/overlay.css" />
+</head>
+<body>
+  <div id="stage">
+    <div id="caption" class="hidden"></div>
+    <div id="avatar" class="idle">
+      <!-- PNG renderer: drop dabi_closed.png / dabi_open.png into assets/.
+           If they are missing, a placeholder derpicorn is shown instead so the
+           pipeline can be tested before the art exists. -->
+      <img id="mouth-closed" src="/assets/dabi_closed.png" alt="" />
+      <img id="mouth-open"   src="/assets/dabi_open.png"   alt="" />
+      <div id="placeholder" class="hidden">🦄</div>
+    </div>
+    <div id="audio-gate" class="hidden">🔊 click anywhere to enable audio</div>
+  </div>
+  <script src="/overlay.js"></script>
+</body>
+</html>
