@@ -223,6 +223,7 @@ async def _send_discord_response(text: str) -> None:
 async def _rabbitmq_consumer() -> None:
     """Consume dabi_events — handles dabi.tts.ready and dabi.discord.response."""
     LOGGER.info("Connecting RabbitMQ consumer...")
+    backoff = 2
     while True:
         try:
             connection = await aio_pika.connect_robust(RABBITMQ_URL)
@@ -234,6 +235,7 @@ async def _rabbitmq_consumer() -> None:
                 )
                 q = await channel.declare_queue("dabi_discord_inbound", durable=True)
                 await q.bind(exchange)
+                backoff = 2  # connected — reset the easing
                 LOGGER.info("RabbitMQ consumer ready")
 
                 async with q.iterator() as queue_iter:
@@ -258,8 +260,9 @@ async def _rabbitmq_consumer() -> None:
                                 await _send_discord_response(text)
 
         except Exception as e:
-            LOGGER.error("RabbitMQ consumer error: %s — retrying in 5s", e)
-            await asyncio.sleep(5)
+            LOGGER.error("RabbitMQ consumer error: %s — retrying in %ds", e, backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 60)
 
 
 # ---------------------------------------------------------------------------

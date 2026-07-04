@@ -46,64 +46,73 @@ async def main():
     LOGGER.info("dabi-stream-brain starting...")
 
     services = Services()
+    backoff = 2
 
-    connection = await aio_pika.connect_robust(RABBITMQ_URL)
-    async with connection:
-        channel = await connection.channel()
-        await channel.set_qos(prefetch_count=10)
+    while True:
+        try:
+            connection = await aio_pika.connect_robust(RABBITMQ_URL)
+            async with connection:
+                channel = await connection.channel()
+                await channel.set_qos(prefetch_count=10)
 
-        # Inbound — Twitch events
-        twitch_exchange = await channel.declare_exchange(
-            TWITCH_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
-        )
-        twitch_queue = await channel.declare_queue(TWITCH_QUEUE_NAME, durable=True)
-        await twitch_queue.bind(twitch_exchange)
+                # Inbound — Twitch events
+                twitch_exchange = await channel.declare_exchange(
+                    TWITCH_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
+                )
+                twitch_queue = await channel.declare_queue(TWITCH_QUEUE_NAME, durable=True)
+                await twitch_queue.bind(twitch_exchange)
 
-        # Inbound — Dabi events (discord messages coming back in)
-        dabi_exchange = await channel.declare_exchange(
-            DABI_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
-        )
-        dabi_queue = await channel.declare_queue(DABI_QUEUE_NAME, durable=True)
-        await dabi_queue.bind(dabi_exchange)
+                # Inbound — Dabi events (discord messages coming back in)
+                dabi_exchange = await channel.declare_exchange(
+                    DABI_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
+                )
+                dabi_queue = await channel.declare_queue(DABI_QUEUE_NAME, durable=True)
+                await dabi_queue.bind(dabi_exchange)
 
-        LOGGER.info("Connected. Waiting for events...")
+                backoff = 2  # connected — reset the easing
+                LOGGER.info("Connected. Waiting for events...")
 
-        async def handle_message(message: aio_pika.abc.AbstractIncomingMessage):
-            async with message.process():
-                event_type = message.type or "unknown"
-                try:
-                    payload = json.loads(message.body)
-                except json.JSONDecodeError:
-                    LOGGER.warning("Invalid JSON in message body")
-                    return
+                async def handle_message(message: aio_pika.abc.AbstractIncomingMessage):
+                    async with message.process():
+                        event_type = message.type or "unknown"
+                        try:
+                            payload = json.loads(message.body)
+                        except json.JSONDecodeError:
+                            LOGGER.warning("Invalid JSON in message body")
+                            return
 
-                try:
-                    response_text, response_event_type = route(event_type, payload, services)
-                except Exception as e:
-                    LOGGER.error("Handler error for %s: %s", event_type, e)
-                    # If an image caused the failure, send a fallback response
-                    if "image" in str(e).lower() or "Could not process" in str(e):
-                        fallback = "I'm terribly sorry but that image appears to be utterly incomprehensible to my refined visual cortex. Perhaps try a different one?"
-                        response_event_type = "dabi.discord.response" if event_type == "dabi.discord.message" else "dabi.tts.ready"
-                        out = aio_pika.Message(
-                            body=json.dumps({"text": fallback}).encode(),
-                            type=response_event_type,
-                        )
-                        await dabi_exchange.publish(out, routing_key="")
-                        LOGGER.info("Published fallback response for failed image")
-                    return
+                        try:
+                            response_text, response_event_type = route(event_type, payload, services)
+                        except Exception as e:
+                            LOGGER.error("Handler error for %s: %s", event_type, e)
+                            # If an image caused the failure, send a fallback response
+                            if "image" in str(e).lower() or "Could not process" in str(e):
+                                fallback = "I'm terribly sorry but that image appears to be utterly incomprehensible to my refined visual cortex. Perhaps try a different one?"
+                                response_event_type = "dabi.discord.response" if event_type == "dabi.discord.message" else "dabi.tts.ready"
+                                out = aio_pika.Message(
+                                    body=json.dumps({"text": fallback}).encode(),
+                                    type=response_event_type,
+                                )
+                                await dabi_exchange.publish(out, routing_key="")
+                                LOGGER.info("Published fallback response for failed image")
+                            return
 
-                if response_text and response_event_type:
-                    out = aio_pika.Message(
-                        body=json.dumps({"text": response_text}).encode(),
-                        type=response_event_type,
-                    )
-                    await dabi_exchange.publish(out, routing_key="")
-                    LOGGER.info("Published %s", response_event_type)
+                        if response_text and response_event_type:
+                            out = aio_pika.Message(
+                                body=json.dumps({"text": response_text}).encode(),
+                                type=response_event_type,
+                            )
+                            await dabi_exchange.publish(out, routing_key="")
+                            LOGGER.info("Published %s", response_event_type)
 
-        await twitch_queue.consume(handle_message)
-        await dabi_queue.consume(handle_message)
-        await asyncio.Future()  # run forever
+                await twitch_queue.consume(handle_message)
+                await dabi_queue.consume(handle_message)
+                await asyncio.Future()  # run forever
+
+        except Exception as e:
+            LOGGER.error("RabbitMQ error: %s. Retrying in %ds…", e, backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 60)
 
 
 if __name__ == "__main__":

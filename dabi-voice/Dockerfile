@@ -5,14 +5,18 @@
 FROM debian:bookworm-slim AS rhubarb
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates git cmake g++ make \
+        ca-certificates git cmake g++ make libboost-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 --branch v1.14.0 \
         https://github.com/DanielSWolf/rhubarb-lip-sync.git /src
 
 WORKDIR /src
-RUN cmake -B build -DCMAKE_BUILD_TYPE=Release \
+# Rhubarb sets policy CMP0167 (only known to CMake >= 3.30) to silence a
+# FindBoost deprecation warning; bookworm's CMake 3.25 errors on it. The
+# behaviour it selects (legacy FindBoost) is 3.25's default, so drop the line.
+RUN sed -i '/CMP0167/d' rhubarb/CMakeLists.txt \
+    && cmake -B build -DCMAKE_BUILD_TYPE=Release \
     && cmake --build build --target rhubarb -j"$(nproc)"
 
 # The binary lands next to its res/ resource folder somewhere under build/ —
