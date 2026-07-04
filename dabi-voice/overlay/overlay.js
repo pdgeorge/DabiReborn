@@ -2,7 +2,9 @@
  * Dabi voice overlay.
  *
  * Receives {"type": "dabi.speak", text, audio_url, duration, mouth_cues}
- * over /ws/voice, queues them, and plays one at a time:
+ * over /ws/voice, queues them, and plays one at a time. Also receives
+ * {"type": "dabi.position", x, y} (numbers pin the avatar's top-left to
+ * that page pixel; nulls restore the default centered layout):
  *   - audio plays inside the OBS browser source
  *   - mouth animates from Rhubarb cues when present,
  *     otherwise from live amplitude (Web Audio analyser)
@@ -25,6 +27,7 @@
   // Two-image mapping: closed for A/X, open for the rest.
   const CLOSED_SHAPES = new Set(["A", "X"]);
 
+  const stageEl = document.getElementById("stage");
   const avatarEl = document.getElementById("avatar");
   const closedImg = document.getElementById("mouth-closed");
   const openImg = document.getElementById("mouth-open");
@@ -86,6 +89,19 @@
   }
 
   const renderer = makePngRenderer();
+
+  // ------------------------------------------------------------------
+  // Position
+  // ------------------------------------------------------------------
+  function applyPosition(payload) {
+    if (typeof payload.x === "number" && typeof payload.y === "number") {
+      stageEl.style.setProperty("--dabi-x", `${payload.x}px`);
+      stageEl.style.setProperty("--dabi-y", `${payload.y}px`);
+      stageEl.classList.add("positioned");
+    } else {
+      stageEl.classList.remove("positioned");
+    }
+  }
 
   // ------------------------------------------------------------------
   // Caption
@@ -235,6 +251,8 @@
       }
       if (payload.type === "dabi.speak" && payload.audio_url) {
         enqueue(payload);
+      } else if (payload.type === "dabi.position") {
+        applyPosition(payload);
       }
     });
 

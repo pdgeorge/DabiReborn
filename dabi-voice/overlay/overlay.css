@@ -1,11 +1,15 @@
-/* Dabi voice overlay — transparent, intended as an OBS browser source.
-   Position/size the avatar by moving the source in OBS; tweak the
-   variables below for in-page adjustments. */
+/* Dabi voice overlay — transparent, intended as a FULLSCREEN OBS browser
+   source (match the canvas, e.g. 1920x1080) so page pixels map 1:1 to
+   screen pixels. Default layout centers the avatar at the bottom; a
+   dabi.position message (DABI_POS_X/Y env or the streamer's !dabi <x>, <y>
+   chat command) switches to absolute positioning via --dabi-x/--dabi-y. */
 
 :root {
   --avatar-size: 400px;
   --caption-width: 480px;
   --caption-font: 22px;
+  --dabi-x: 0px;
+  --dabi-y: 0px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -57,6 +61,22 @@ html, body {
   justify-content: center;
   font-size: calc(var(--avatar-size) * 0.6);
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+}
+
+/* Pinned mode: avatar's top-left at (--dabi-x, --dabi-y); the caption
+   bubble hovers centered above it instead of sitting in the flex flow. */
+#stage.positioned #avatar {
+  position: absolute;
+  left: var(--dabi-x);
+  top: var(--dabi-y);
+}
+
+#stage.positioned #caption {
+  position: absolute;
+  left: calc(var(--dabi-x) + var(--avatar-size) / 2);
+  top: var(--dabi-y);
+  transform: translate(-50%, calc(-100% - 14px));
+  margin-bottom: 0;
 }
 
 /* Idle: slow breathing bob. Talking: livelier bounce (JS adds rotation). */

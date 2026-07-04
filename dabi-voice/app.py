@@ -20,20 +20,30 @@ HTTP:
   GET  /           -> overlay page (add as OBS browser source)
   GET  /audio/...  -> generated audio files
   POST /say        -> {"text": "..."} manual test endpoint (LAN/tailnet only)
-  WS   /ws/voice   -> overlay clients
+  WS   /ws/voice   -> overlay clients (greeted with the current dabi.position)
+
+Chat commands (broadcaster only, consumed from the twitch_events exchange;
+coordinates are page pixels — make the OBS browser source fullscreen so they
+map 1:1 to screen pixels):
+  !dabi <x>, <y>   -> move the avatar's top-left corner to (x, y)
+  !dabi reset      -> back to DABI_POS_X/Y, or the default centered layout
 
 .env keys:
   RABBITMQ_URL
   DABI_EXCHANGE     (default: dabi_events)
+  TWITCH_EXCHANGE   (default: twitch_events)
   VOICE_HTTP_PORT   (default: 8090)
   RHUBARB_BIN       (default: rhubarb — set to full path if not on PATH)
   DABI_JSON         (default: shared/dabi.json — name/voice config)
+  DABI_POS_X        (optional: initial avatar x in px; needs DABI_POS_Y too)
+  DABI_POS_Y        (optional: initial avatar y in px; needs DABI_POS_X too)
 """
 
 import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -65,8 +75,9 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger("dabi-voice")
 
-RABBITMQ_URL   = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-DABI_EXCHANGE  = os.getenv("DABI_EXCHANGE", "dabi_events")
+RABBITMQ_URL    = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+DABI_EXCHANGE   = os.getenv("DABI_EXCHANGE", "dabi_events")
+TWITCH_EXCHANGE = os.getenv("TWITCH_EXCHANGE", "twitch_events")
 QUEUE_NAME     = "dabi_voice_inbound"
 HTTP_PORT      = int(os.getenv("VOICE_HTTP_PORT", "8090"))
 RHUBARB_BIN    = os.getenv("RHUBARB_BIN", "rhubarb")
@@ -87,6 +98,36 @@ TTS_ENGINE = _dabi_cfg.get("voice_service", "edge")
 TTS_VOICE  = _dabi_cfg.get("voice", "en-GB-RyanNeural")
 
 tts = TTSService()
+
+# ---------------------------------------------------------------------------
+# Avatar position (page pixels, top-left of the avatar box; None = the
+# default centered-at-bottom flexbox layout)
+# ---------------------------------------------------------------------------
+def _env_position() -> Optional[dict]:
+    x, y = os.getenv("DABI_POS_X"), os.getenv("DABI_POS_Y")
+    if x is None or y is None:
+        return None
+    try:
+        return {"x": int(x), "y": int(y)}
+    except ValueError:
+        LOGGER.warning("Ignoring non-integer DABI_POS_X/Y: %r, %r", x, y)
+        return None
+
+
+INITIAL_POSITION = _env_position()
+avatar_position: Optional[dict] = INITIAL_POSITION
+
+# "!dabi 1800, 800" / "!dabi 1800 800" / "!dabi reset"
+DABI_CMD_RE = re.compile(r"^!dabi\s+(?:(-?\d+)\s*[, ]\s*(-?\d+)|(reset))\s*$", re.I)
+
+
+def _position_payload() -> dict:
+    return {
+        "type": "dabi.position",
+        "x": avatar_position["x"] if avatar_position else None,
+        "y": avatar_position["y"] if avatar_position else None,
+    }
+
 
 # ---------------------------------------------------------------------------
 # WebSocket hub
@@ -226,8 +267,57 @@ async def speak(text: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
-# RabbitMQ consumer
+# RabbitMQ consumers
 # ---------------------------------------------------------------------------
+async def _handle_tts_ready(data: dict) -> None:
+    await speak(str(data.get("text", "")))
+
+
+async def _handle_chat_message(data: dict) -> None:
+    """!dabi <x>, <y> / !dabi reset — broadcaster only."""
+    global avatar_position
+    event = data.get("event") or {}
+    text = ((event.get("message") or {}).get("text") or "").strip()
+    if not text.lower().startswith("!dabi"):
+        return
+
+    chatter = event.get("chatter_user_id")
+    if not chatter or chatter != event.get("broadcaster_user_id"):
+        LOGGER.info("Ignoring !dabi from non-broadcaster %r",
+                    event.get("chatter_user_login"))
+        return
+
+    m = DABI_CMD_RE.match(text)
+    if not m:
+        LOGGER.info("Unrecognized !dabi syntax: %r", text)
+        return
+
+    if m.group(3):  # reset
+        avatar_position = INITIAL_POSITION
+    else:
+        avatar_position = {"x": int(m.group(1)), "y": int(m.group(2))}
+    LOGGER.info("Avatar position -> %s", avatar_position or "default layout")
+    await broadcast(_position_payload())
+
+
+async def _consume(queue, wanted_type: str, handler) -> None:
+    async with queue.iterator() as queue_iter:
+        async for message in queue_iter:
+            async with message.process():
+                if message.type != wanted_type:
+                    continue
+                try:
+                    data = json.loads(message.body)
+                except json.JSONDecodeError:
+                    LOGGER.warning("Invalid JSON in %s", wanted_type)
+                    continue
+                try:
+                    await handler(data)
+                except Exception as e:
+                    LOGGER.error("%s handler failed: %s", wanted_type, e,
+                                 exc_info=True)
+
+
 async def _rabbitmq_consumer() -> None:
     backoff = 2
     while True:
@@ -235,31 +325,37 @@ async def _rabbitmq_consumer() -> None:
             LOGGER.info("Connecting to RabbitMQ…")
             connection = await aio_pika.connect_robust(RABBITMQ_URL)
             async with connection:
-                channel = await connection.channel()
-                # prefetch 1 → lines are processed (and spoken) in order
-                await channel.set_qos(prefetch_count=1)
-                exchange = await channel.declare_exchange(
+                # Voice queue: durable, prefetch 1 → lines spoken in order.
+                voice_ch = await connection.channel()
+                await voice_ch.set_qos(prefetch_count=1)
+                dabi_ex = await voice_ch.declare_exchange(
                     DABI_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
                 )
-                queue = await channel.declare_queue(QUEUE_NAME, durable=True)
-                await queue.bind(exchange)
-                backoff = 2
-                LOGGER.info("RabbitMQ connected. Waiting for dabi.tts.ready…")
+                voice_q = await voice_ch.declare_queue(QUEUE_NAME, durable=True)
+                await voice_q.bind(dabi_ex)
 
-                async with queue.iterator() as queue_iter:
-                    async for message in queue_iter:
-                        async with message.process():
-                            if message.type != "dabi.tts.ready":
-                                continue
-                            try:
-                                data = json.loads(message.body)
-                            except json.JSONDecodeError:
-                                LOGGER.warning("Invalid JSON in dabi.tts.ready")
-                                continue
-                            try:
-                                await speak(str(data.get("text", "")))
-                            except Exception as e:
-                                LOGGER.error("speak() failed: %s", e, exc_info=True)
+                # Twitch chat queue: own channel so a slow TTS run can't hold
+                # up !dabi; exclusive/server-named so no backlog accumulates
+                # while dabi-voice is down.
+                twitch_ch = await connection.channel()
+                twitch_ex = await twitch_ch.declare_exchange(
+                    TWITCH_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
+                )
+                twitch_q = await twitch_ch.declare_queue(exclusive=True)
+                await twitch_q.bind(twitch_ex)
+
+                backoff = 2
+                LOGGER.info("RabbitMQ connected. Waiting for dabi.tts.ready "
+                            "+ channel.chat.message…")
+
+                consumers = asyncio.gather(
+                    _consume(voice_q, "dabi.tts.ready", _handle_tts_ready),
+                    _consume(twitch_q, "channel.chat.message", _handle_chat_message),
+                )
+                try:
+                    await consumers
+                finally:
+                    consumers.cancel()
 
         except Exception as e:
             LOGGER.error("RabbitMQ error: %s. Retrying in %ds…", e, backoff)
@@ -308,6 +404,7 @@ async def healthz():
 @app.websocket("/ws/voice")
 async def voice_ws(ws: WebSocket):
     await ws.accept()
+    await ws.send_text(json.dumps(_position_payload()))
     connected_clients.add(ws)
     LOGGER.info("Overlay client connected (%d total)", len(connected_clients))
     try:
