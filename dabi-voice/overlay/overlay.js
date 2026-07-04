@@ -20,6 +20,26 @@
   "use strict";
 
   // ------------------------------------------------------------------
+  // Debug beacons: POSTed to the server log so headless clients (the
+  // OBS browser source) can be diagnosed remotely.
+  // ------------------------------------------------------------------
+  const IS_OBS = /OBS\//.test(navigator.userAgent);
+
+  function report(info) {
+    try {
+      fetch("/debug", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.assign({ obs: IS_OBS }, info)),
+      }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }
+
+  report({ event: "page-load", ua: navigator.userAgent.slice(-60) });
+
+  // ------------------------------------------------------------------
   // Renderer: PNG mouth flap
   // ------------------------------------------------------------------
   // Rhubarb shapes: A (closed, p/b/m), B (slightly open), C (open),
@@ -49,11 +69,13 @@
       artLoaded = true;
       placeholderEl.classList.add("hidden");
       show(closedImg);
+      report({ event: "art-loaded" });
     }
     for (const img of [closedImg, openImg]) {
       img.addEventListener("load", () => checkArt(img));
       img.addEventListener("error", () => {
         placeholderEl.classList.remove("hidden");
+        report({ event: "art-error", img: img.id });
       });
       if (img.complete && img.naturalWidth > 0) checkArt(img);
     }
@@ -202,20 +224,50 @@
 
     await new Promise((resolve) => {
       audio.addEventListener("ended", resolve, { once: true });
-      audio.addEventListener("error", resolve, { once: true });
+      audio.addEventListener("error", () => {
+        report({ event: "audio-error", id: payload.id,
+                 code: audio.error && audio.error.code });
+        resolve();
+      }, { once: true });
 
-      audio.play().then(() => {
+      function started() {
         if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
         audioGate.classList.add("hidden");
         rafId = requestAnimationFrame(tick);
-      }).catch(() => {
-        // Autoplay blocked (normal browser, not OBS): wait for one click.
+      }
+
+      audio.play().then(() => {
+        report({ event: "play-ok", id: payload.id });
+        started();
+      }).catch((err) => {
+        // Autoplay blocked. In a normal browser one click fixes it; in OBS
+        // nobody can click, so retry a few times then skip rather than
+        // wedging the queue forever.
+        report({ event: "play-blocked", id: payload.id, err: String(err) });
         audioGate.classList.remove("hidden");
+
+        let tries = 0;
+        const retry = setInterval(() => {
+          tries += 1;
+          audio.play().then(() => {
+            clearInterval(retry);
+            report({ event: "play-ok-after-retry", id: payload.id, tries });
+            started();
+          }).catch(() => {
+            if (tries >= 5) {
+              clearInterval(retry);
+              report({ event: "play-gave-up", id: payload.id });
+              resolve();
+            }
+          });
+        }, 3000);
+
         document.addEventListener("click", () => {
           if (audioCtx) audioCtx.resume();
           audio.play().then(() => {
-            audioGate.classList.add("hidden");
-            rafId = requestAnimationFrame(tick);
+            clearInterval(retry);
+            report({ event: "play-ok-after-click", id: payload.id });
+            started();
           }).catch(resolve);
         }, { once: true });
       });

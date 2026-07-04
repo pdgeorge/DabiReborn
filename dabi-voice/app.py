@@ -52,7 +52,7 @@ from typing import Optional, Set
 import aio_pika
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -394,6 +394,18 @@ async def say(req: SayRequest):
     if payload is None:
         return JSONResponse({"ok": False, "error": "TTS failed or empty text"}, status_code=500)
     return {"ok": True, "id": payload["id"], "clients": len(connected_clients)}
+
+
+@app.post("/debug")
+async def client_debug(req: Request):
+    """Overlay clients (incl. the OBS browser source) beacon their state
+    here so headless playback problems show up in the server log."""
+    try:
+        info = await req.json()
+    except Exception:
+        info = {"raw": (await req.body())[:200].decode(errors="replace")}
+    LOGGER.info("[client %s] %s", req.client.host if req.client else "?", info)
+    return {"ok": True}
 
 
 @app.get("/healthz")
