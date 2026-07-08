@@ -19,6 +19,12 @@
     </div>
     <div id="audio-gate" class="hidden">🔊 click anywhere to enable audio</div>
   </div>
+  <!-- Live2D runtime (all self-hosted; OBS browser source has no CDN).
+       If any of these fail to load, overlay.js keeps the PNG renderer. -->
+  <script src="/assets/vendor/live2dcubismcore.min.js"></script>
+  <script src="/assets/vendor/pixi.min.js"></script>
+  <script src="/assets/vendor/pixi-live2d-display-cubism4.min.js"></script>
+  <script src="/live2d-renderer.js"></script>
   <script src="/overlay.js"></script>
 </body>
 </html>

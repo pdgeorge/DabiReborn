@@ -53,6 +53,21 @@ html, body {
 
 #avatar img.visible { display: block; }
 
+/* Live2D mode: canvas replaces the PNGs; the model animates itself, so the
+   CSS breathe/bounce on the whole box is disabled to avoid double motion. */
+#avatar canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#stage.live2d #avatar img,
+#stage.live2d #placeholder { display: none !important; }
+
+#stage.live2d #avatar.idle,
+#stage.live2d #avatar.talking { animation: none; }
+
 #placeholder {
   position: absolute;
   inset: 0;

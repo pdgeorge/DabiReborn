@@ -1,0 +1,138 @@
+{
+  "ArtMeshDetails": {
+    "ArtMeshMultiplyAndScreenColors": [],
+    "ArtMeshesExcludedFromPinning": []
+  },
+  "FileReferences": {
+    "Icon": "",
+    "IdleAnimation": "dabi_idle.motion3.json",
+    "IdleAnimationWhenTrackingLost": "",
+    "Model": "Model_@pdgeorge_commission_by_e3maly.model3.json"
+  },
+  "HotkeySettings": [],
+  "ModelID": "dab1000000000000000000000000mmm1",
+  "ModelSaveMetadata": {
+    "LastSavedDateUnixMillisecondTimestamp": "1751750000000"
+  },
+  "Name": "Dabi",
+  "ParameterSettings": [
+    {
+      "ClampInput": true,
+      "Input": "EyeOpenLeft",
+      "InputRangeLower": 0.0,
+      "InputRangeUpper": 1.0,
+      "Name": "ParamEyeLOpen",
+      "OutputLive2D": "ParamEyeLOpen",
+      "OutputRangeLower": 0.0,
+      "OutputRangeUpper": 1.0,
+      "Smoothing": 0.0,
+      "UseBlinking": true,
+      "UseBreathing": false
+    },
+    {
+      "ClampInput": true,
+      "Input": "EyeOpenRight",
+      "InputRangeLower": 0.0,
+      "InputRangeUpper": 1.0,
+      "Name": "ParamEyeROpen",
+      "OutputLive2D": "ParamEyeROpen",
+      "OutputRangeLower": 0.0,
+      "OutputRangeUpper": 1.0,
+      "Smoothing": 0.0,
+      "UseBlinking": true,
+      "UseBreathing": false
+    },
+    {
+      "ClampInput": true,
+      "Input": "EyeLeftX",
+      "InputRangeLower": -1.0,
+      "InputRangeUpper": 1.0,
+      "Name": "ParamEyeBallX",
+      "OutputLive2D": "ParamEyeBallX",
+      "OutputRangeLower": -1.0,
+      "OutputRangeUpper": 1.0,
+      "Smoothing": 5.0,
+      "UseBlinking": false,
+      "UseBreathing": false
+    },
+    {
+      "ClampInput": true,
+      "Input": "EyeLeftY",
+      "InputRangeLower": -1.0,
+      "InputRangeUpper": 1.0,
+      "Name": "ParamEyeBallY",
+      "OutputLive2D": "ParamEyeBallY",
+      "OutputRangeLower": -1.0,
+      "OutputRangeUpper": 1.0,
+      "Smoothing": 5.0,
+      "UseBlinking": false,
+      "UseBreathing": false
+    },
+    {
+      "ClampInput": true,
+      "Input": "Brows",
+      "InputRangeLower": 0.0,
+      "InputRangeUpper": 1.0,
+      "Name": "ParamBrowLY",
+      "OutputLive2D": "ParamBrowLY",
+      "OutputRangeLower": -1.0,
+      "OutputRangeUpper": 1.0,
+      "Smoothing": 10.0,
+      "UseBlinking": false,
+      "UseBreathing": false
+    },
+    {
+      "ClampInput": true,
+      "Input": "Brows",
+      "InputRangeLower": 0.0,
+      "InputRangeUpper": 1.0,
+      "Name": "ParamBrowRY",
+      "OutputLive2D": "ParamBrowRY",
+      "OutputRangeLower": -1.0,
+      "OutputRangeUpper": 1.0,
+      "Smoothing": 10.0,
+      "UseBlinking": false,
+      "UseBreathing": false
+    },
+    {
+      "ClampInput": true,
+      "Input": "MouthSmile",
+      "InputRangeLower": 0.0,
+      "InputRangeUpper": 1.0,
+      "Name": "ParamMouthForm",
+      "OutputLive2D": "ParamMouthForm",
+      "OutputRangeLower": -1.0,
+      "OutputRangeUpper": 1.0,
+      "Smoothing": 5.0,
+      "UseBlinking": false,
+      "UseBreathing": false
+    },
+    {
+      "ClampInput": true,
+      "Input": "MouthOpen",
+      "InputRangeLower": 0.0,
+      "InputRangeUpper": 1.0,
+      "Name": "ParamMouthOpenY",
+      "OutputLive2D": "ParamMouthOpenY",
+      "OutputRangeLower": 0.0,
+      "OutputRangeUpper": 1.0,
+      "Smoothing": 3.0,
+      "UseBlinking": false,
+      "UseBreathing": false
+    },
+    {
+      "ClampInput": false,
+      "Input": "",
+      "InputRangeLower": 0.0,
+      "InputRangeUpper": 1.0,
+      "Name": "ParamBreath",
+      "OutputLive2D": "ParamBreath",
+      "OutputRangeLower": 0.0,
+      "OutputRangeUpper": 1.0,
+      "Smoothing": 0.0,
+      "UseBlinking": false,
+      "UseBreathing": true
+    }
+  ],
+  "Version": 1.0
+}

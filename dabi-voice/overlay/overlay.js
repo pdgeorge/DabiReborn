@@ -110,7 +110,25 @@
     };
   }
 
-  const renderer = makePngRenderer();
+  let renderer = makePngRenderer();
+
+  // Live2D upgrade: swap the renderer in place if the model loads.
+  // Same three methods, nothing else changes; failures keep the PNG flap.
+  if (typeof makeLive2DRenderer === "function") {
+    makeLive2DRenderer({
+      modelUrl: "/assets/dabi/Model_@pdgeorge_commission_by_e3maly.model3.json",
+      container: avatarEl,
+      report: report,
+    }).then((live2d) => {
+      if (live2d) {
+        renderer = live2d;
+        stageEl.classList.add("live2d");
+        report({ event: "live2d-ready" });
+      }
+    }).catch((err) => {
+      report({ event: "live2d-failed", err: String(err) });
+    });
+  }
 
   // ------------------------------------------------------------------
   // Position

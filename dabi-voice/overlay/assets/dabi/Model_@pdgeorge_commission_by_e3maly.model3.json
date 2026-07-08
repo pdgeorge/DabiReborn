@@ -1,0 +1,23 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "Model_@pdgeorge_commission_by_e3maly.moc3",
+		"Textures": [
+			"Model_@pdgeorge_commission_by_e3maly.2048/texture_00.png"
+		],
+		"Physics": "Model_@pdgeorge_commission_by_e3maly.physics3.json",
+		"DisplayInfo": "Model_@pdgeorge_commission_by_e3maly.cdi3.json"
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		}
+	]
+}

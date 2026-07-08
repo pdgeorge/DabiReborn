@@ -1,0 +1,549 @@
+{
+  "graphs": {
+    "VTS_Hotkeys": {
+      "bindings": [],
+      "enabled": true,
+      "nodes": []
+    },
+    "VTS_Parameters": {
+      "bindings": [
+        {
+          "dst": "385288",
+          "dst_slot": 0,
+          "src": "385253",
+          "src_slot": 0
+        },
+        {
+          "dst": "385288",
+          "dst_slot": 1,
+          "src": "385236",
+          "src_slot": 0
+        },
+        {
+          "dst": "385272",
+          "dst_slot": 0,
+          "src": "385288",
+          "src_slot": 0
+        },
+        {
+          "dst": "385350",
+          "dst_slot": 0,
+          "src": "385315",
+          "src_slot": 0
+        },
+        {
+          "dst": "385350",
+          "dst_slot": 1,
+          "src": "385236",
+          "src_slot": 0
+        },
+        {
+          "dst": "385334",
+          "dst_slot": 0,
+          "src": "385350",
+          "src_slot": 0
+        },
+        {
+          "dst": "385412",
+          "dst_slot": 0,
+          "src": "385377",
+          "src_slot": 0
+        },
+        {
+          "dst": "385396",
+          "dst_slot": 0,
+          "src": "385412",
+          "src_slot": 0
+        },
+        {
+          "dst": "385459",
+          "dst_slot": 0,
+          "src": "385424",
+          "src_slot": 0
+        },
+        {
+          "dst": "385443",
+          "dst_slot": 0,
+          "src": "385459",
+          "src_slot": 0
+        },
+        {
+          "dst": "385506",
+          "dst_slot": 0,
+          "src": "385471",
+          "src_slot": 0
+        },
+        {
+          "dst": "385490",
+          "dst_slot": 0,
+          "src": "385506",
+          "src_slot": 0
+        },
+        {
+          "dst": "385553",
+          "dst_slot": 0,
+          "src": "385518",
+          "src_slot": 0
+        },
+        {
+          "dst": "385537",
+          "dst_slot": 0,
+          "src": "385553",
+          "src_slot": 0
+        },
+        {
+          "dst": "385600",
+          "dst_slot": 0,
+          "src": "385565",
+          "src_slot": 0
+        },
+        {
+          "dst": "385584",
+          "dst_slot": 0,
+          "src": "385600",
+          "src_slot": 0
+        },
+        {
+          "dst": "385647",
+          "dst_slot": 0,
+          "src": "385612",
+          "src_slot": 0
+        },
+        {
+          "dst": "385631",
+          "dst_slot": 0,
+          "src": "385647",
+          "src_slot": 0
+        },
+        {
+          "dst": "385678",
+          "dst_slot": 0,
+          "src": "385228",
+          "src_slot": 0
+        }
+      ],
+      "enabled": true,
+      "nodes": [
+        {
+          "id": "385228",
+          "parameters": {
+            "frequency": 2000.0
+          },
+          "position": {
+            "x": -500.0,
+            "y": 0.0
+          },
+          "type": "breathe"
+        },
+        {
+          "id": "385236",
+          "parameters": {
+            "frequency": {
+              "max": 5000.0,
+              "min": 500.0
+            },
+            "speed": 200.0
+          },
+          "position": {
+            "x": -500.0,
+            "y": 250.0
+          },
+          "type": "blink"
+        },
+        {
+          "id": "385253",
+          "parameters": {
+            "clamp": true,
+            "invert": false,
+            "parameter": "EyeOpenLeft",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "type": "tracking_parameter"
+        },
+        {
+          "id": "385272",
+          "parameters": {
+            "clamp": false,
+            "invert": false,
+            "parameter": "ParamEyeLOpen",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 526.0,
+            "y": 0.0
+          },
+          "type": "model_parameter"
+        },
+        {
+          "id": "385288",
+          "parameters": {
+            "a": null,
+            "b": null,
+            "operator": "Multiply"
+          },
+          "position": {
+            "x": 390.0,
+            "y": 0.0
+          },
+          "type": "arithmetic"
+        },
+        {
+          "id": "385315",
+          "parameters": {
+            "clamp": true,
+            "invert": false,
+            "parameter": "EyeOpenRight",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 0.0,
+            "y": 278.0
+          },
+          "type": "tracking_parameter"
+        },
+        {
+          "id": "385334",
+          "parameters": {
+            "clamp": false,
+            "invert": false,
+            "parameter": "ParamEyeROpen",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 526.0,
+            "y": 278.0
+          },
+          "type": "model_parameter"
+        },
+        {
+          "id": "385350",
+          "parameters": {
+            "a": null,
+            "b": null,
+            "operator": "Multiply"
+          },
+          "position": {
+            "x": 390.0,
+            "y": 278.0
+          },
+          "type": "arithmetic"
+        },
+        {
+          "id": "385377",
+          "parameters": {
+            "clamp": true,
+            "invert": false,
+            "parameter": "EyeLeftX",
+            "range": {
+              "max": 1.0,
+              "min": -1.0
+            }
+          },
+          "position": {
+            "x": 0.0,
+            "y": 556.0
+          },
+          "type": "tracking_parameter"
+        },
+        {
+          "id": "385396",
+          "parameters": {
+            "clamp": false,
+            "invert": false,
+            "parameter": "ParamEyeBallX",
+            "range": {
+              "max": 1.0,
+              "min": -1.0
+            }
+          },
+          "position": {
+            "x": 710.0,
+            "y": 556.0
+          },
+          "type": "model_parameter"
+        },
+        {
+          "id": "385412",
+          "parameters": {
+            "smoothing": 0.05
+          },
+          "position": {
+            "x": 390.0,
+            "y": 556.0
+          },
+          "type": "smoothing"
+        },
+        {
+          "id": "385424",
+          "parameters": {
+            "clamp": true,
+            "invert": false,
+            "parameter": "EyeLeftY",
+            "range": {
+              "max": 1.0,
+              "min": -1.0
+            }
+          },
+          "position": {
+            "x": 0.0,
+            "y": 834.0
+          },
+          "type": "tracking_parameter"
+        },
+        {
+          "id": "385443",
+          "parameters": {
+            "clamp": false,
+            "invert": false,
+            "parameter": "ParamEyeBallY",
+            "range": {
+              "max": 1.0,
+              "min": -1.0
+            }
+          },
+          "position": {
+            "x": 710.0,
+            "y": 834.0
+          },
+          "type": "model_parameter"
+        },
+        {
+          "id": "385459",
+          "parameters": {
+            "smoothing": 0.05
+          },
+          "position": {
+            "x": 390.0,
+            "y": 834.0
+          },
+          "type": "smoothing"
+        },
+        {
+          "id": "385471",
+          "parameters": {
+            "clamp": true,
+            "invert": false,
+            "parameter": "Brows",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 0.0,
+            "y": 1112.0
+          },
+          "type": "tracking_parameter"
+        },
+        {
+          "id": "385490",
+          "parameters": {
+            "clamp": false,
+            "invert": false,
+            "parameter": "ParamBrowLY",
+            "range": {
+              "max": 1.0,
+              "min": -1.0
+            }
+          },
+          "position": {
+            "x": 710.0,
+            "y": 1112.0
+          },
+          "type": "model_parameter"
+        },
+        {
+          "id": "385506",
+          "parameters": {
+            "smoothing": 0.1
+          },
+          "position": {
+            "x": 390.0,
+            "y": 1112.0
+          },
+          "type": "smoothing"
+        },
+        {
+          "id": "385518",
+          "parameters": {
+            "clamp": true,
+            "invert": false,
+            "parameter": "Brows",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 0.0,
+            "y": 1390.0
+          },
+          "type": "tracking_parameter"
+        },
+        {
+          "id": "385537",
+          "parameters": {
+            "clamp": false,
+            "invert": false,
+            "parameter": "ParamBrowRY",
+            "range": {
+              "max": 1.0,
+              "min": -1.0
+            }
+          },
+          "position": {
+            "x": 710.0,
+            "y": 1390.0
+          },
+          "type": "model_parameter"
+        },
+        {
+          "id": "385553",
+          "parameters": {
+            "smoothing": 0.1
+          },
+          "position": {
+            "x": 390.0,
+            "y": 1390.0
+          },
+          "type": "smoothing"
+        },
+        {
+          "id": "385565",
+          "parameters": {
+            "clamp": true,
+            "invert": false,
+            "parameter": "MouthSmile",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 0.0,
+            "y": 1668.0
+          },
+          "type": "tracking_parameter"
+        },
+        {
+          "id": "385584",
+          "parameters": {
+            "clamp": false,
+            "invert": false,
+            "parameter": "ParamMouthForm",
+            "range": {
+              "max": 1.0,
+              "min": -1.0
+            }
+          },
+          "position": {
+            "x": 710.0,
+            "y": 1668.0
+          },
+          "type": "model_parameter"
+        },
+        {
+          "id": "385600",
+          "parameters": {
+            "smoothing": 0.05
+          },
+          "position": {
+            "x": 390.0,
+            "y": 1668.0
+          },
+          "type": "smoothing"
+        },
+        {
+          "id": "385612",
+          "parameters": {
+            "clamp": true,
+            "invert": false,
+            "parameter": "MouthOpen",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 0.0,
+            "y": 1946.0
+          },
+          "type": "tracking_parameter"
+        },
+        {
+          "id": "385631",
+          "parameters": {
+            "clamp": false,
+            "invert": false,
+            "parameter": "ParamMouthOpenY",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 710.0,
+            "y": 1946.0
+          },
+          "type": "model_parameter"
+        },
+        {
+          "id": "385647",
+          "parameters": {
+            "smoothing": 0.03
+          },
+          "position": {
+            "x": 390.0,
+            "y": 1946.0
+          },
+          "type": "smoothing"
+        },
+        {
+          "id": "385678",
+          "parameters": {
+            "clamp": false,
+            "invert": false,
+            "parameter": "ParamBreath",
+            "range": {
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "position": {
+            "x": 1210.0,
+            "y": 0.0
+          },
+          "type": "model_parameter"
+        }
+      ]
+    }
+  },
+  "quality": {
+    "filter": "linear",
+    "smooth": false
+  },
+  "transform": {
+    "position": {
+      "x": 408.0,
+      "y": 356.0
+    },
+    "rotation": 0.0,
+    "scale": 0.100000001490116
+  }
+}
