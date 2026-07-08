@@ -85,16 +85,18 @@ async function makeLive2DRenderer(opts) {
 
   // Mouth: smoothed approach toward a target per Rhubarb cue.
   // shape -> [ParamMouthOpenY target, ParamMouthForm target]
+  // Targets are exaggerated past realistic on purpose — cartoon mouths
+  // commit. Subtlety here reads as mumbling from stream distance.
   const SHAPES = {
     X: [0.0, 0.0],   // idle
     A: [0.0, 0.0],   // p/b/m — closed
-    B: [0.35, 0.0],  // slightly open
-    C: [0.7, 0.0],   // open "eh"
-    D: [1.0, 0.1],   // wide "ah"
-    E: [0.55, -0.25],// rounded "oh"
-    F: [0.4, -0.6],  // "oo"
-    G: [0.25, 0.0],  // f/v
-    H: [0.5, 0.0],   // l
+    B: [0.5, 0.0],   // slightly open
+    C: [0.85, 0.0],  // open "eh"
+    D: [1.0, 0.15],  // wide "ah"
+    E: [0.7, -0.35], // rounded "oh"
+    F: [0.5, -0.7],  // "oo"
+    G: [0.35, 0.0],  // f/v
+    H: [0.65, 0.0],  // l
   };
   let mouthTarget = 0.0;
   let formTarget = 0.0;
@@ -126,6 +128,7 @@ async function makeLive2DRenderer(opts) {
     eyeL: "ParamEyeLOpen",
     eyeR: "ParamEyeROpen",
     bodyY: "ParamBodyAngleY",
+    headY: "ParamAngleY",
   };
 
   let lastNow = performance.now();
@@ -139,12 +142,21 @@ async function makeLive2DRenderer(opts) {
     // restore the motion-layer base, exactly like a real motion would
     coreModel.loadParameters();
 
-    // mouth (exponential approach; fast enough to hit each viseme)
-    const rate = 1 - Math.exp(-25 * dt);
-    mouthNow += (mouthTarget - mouthNow) * rate;
-    formNow += (formTarget - formNow) * rate;
+    // mouth: asymmetric attack — snap open (~1 frame), relax closed.
+    // The old symmetric 25/s smoothing read as mumbling; the PNG flap
+    // was punchy because it was instant. This keeps the snap and only
+    // smooths the release, like a jaw actually closing.
+    const openRate = 1 - Math.exp(-70 * dt);
+    const closeRate = 1 - Math.exp(-18 * dt);
+    mouthNow += (mouthTarget - mouthNow) * (mouthTarget > mouthNow ? openRate : closeRate);
+    formNow += (formTarget - formNow) * openRate;
     coreModel.setParameterValueById(coreIds.mouthOpen, mouthNow);
     coreModel.setParameterValueById(coreIds.mouthForm, formNow);
+
+    // jaw→head coupling: the whole head tips up as the mouth opens —
+    // the classic 90s yap. Gain is pre-doubled because the library's
+    // breathing pass blends angle params at 50% weight afterward.
+    coreModel.setParameterValueById(coreIds.headY, mouthNow * 7.0);
 
     // blink
     const open = eyeOpenness(now);
