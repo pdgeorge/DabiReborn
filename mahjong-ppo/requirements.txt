@@ -1,0 +1,6 @@
+# Rule-based baseline (phase 1)
+mahjong>=1.4.0
+
+# PPO phase (phase 2) — add when the env wrapper lands:
+# gymnasium
+# stable-baselines3
