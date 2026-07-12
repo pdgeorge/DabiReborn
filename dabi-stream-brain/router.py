@@ -10,13 +10,17 @@ Response routing:
 """
 
 import logging
-from handlers import chat_message, discord_message, channel_point
+from handlers import chat_message, discord_message, channel_point, admin_command, stream_online
 
 LOGGER = logging.getLogger(__name__)
 
 # Maps event type → (handler, response_event_type)
 HANDLERS = {
-    # "channel.chat.message":  (chat_message.handle,    "dabi.tts.ready"),
+    # admin_command only reacts to broadcaster/mod !commands (e.g. !dabireset);
+    # regular chat is ignored. If chat_message.handle is re-enabled, fold it in
+    # as admin_command's fallthrough — one handler per event type.
+    "channel.chat.message":  (admin_command.handle,   "dabi.tts.ready"),
+    "stream.online":         (stream_online.handle,   "dabi.tts.ready"),
     "dabi.discord.message":  (discord_message.handle, "dabi.discord.response"),
     "channel.channel_points_custom_reward_redemption.add": (channel_point.handle, "dabi.tts.ready"),
     # "channel.subscribe": (subscribe.handle, "dabi.tts.ready"),
