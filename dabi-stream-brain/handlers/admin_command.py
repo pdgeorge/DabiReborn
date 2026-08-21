@@ -1,11 +1,10 @@
 """
 dabi-stream-brain/handlers/admin_command.py
 -------------------------------------------
-Broadcaster/mod-only chat commands for managing Dabi himself. Every
-other chat message returns None, so this handler safely owns
-channel.chat.message while Dabi doesn't reply to regular chat. If
-chat_message.handle is ever re-enabled, fold it in as the fallthrough
-after the command lookup (the router allows one handler per event type).
+Broadcaster/mod-only chat commands for managing Dabi himself. This
+handler owns channel.chat.message (the router allows one handler per
+event type), so anything that isn't a command falls through to
+chat_message.enqueue for batching.
 
 Add a command: write a function taking (event, services) and returning
 the text Dabi should say (or None for silence), then register it in
@@ -13,6 +12,8 @@ COMMANDS.
 """
 
 import logging
+
+from handlers import chat_message
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,8 +36,24 @@ def _cmd_dabireset(event: dict, services: object) -> str | None:
     return "Huh? Where am I? Who are all of you people? ...oh, this seems like a lovely stream, I think I'll stay."
 
 
+def _cmd_dabichat(event: dict, services: object) -> str | None:
+    """
+    Same toggle as the 'dabichat' redeem, for testing without burning
+    points. Broadcaster/mod only, like every command here.
+    """
+    batch = services.chat_batch
+    batch.set_enabled(not batch.enabled)
+    LOGGER.info("Chat replies %s via !dabichat", "ENABLED" if batch.enabled else "DISABLED")
+    return (
+        "Fine, fine — I'm listening to you lot now."
+        if batch.enabled
+        else "Right, tuning chat out. Blissful silence."
+    )
+
+
 COMMANDS = {
     "!dabireset": _cmd_dabireset,
+    "!dabichat": _cmd_dabichat,
 }
 
 
@@ -51,7 +68,8 @@ def handle(payload: dict, services: object) -> str | None:
 
     command = COMMANDS.get(message.split()[0].lower())
     if not command:
-        return None
+        # Not a command — regular chat, buffer it for the next batch.
+        return chat_message.enqueue(payload, services)
 
     if not _is_authorized(event):
         LOGGER.info(

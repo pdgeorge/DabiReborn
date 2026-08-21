@@ -9,6 +9,12 @@ services:
       RABBITMQ_URL: amqp://overlay:strongpassword@rabbitmq:5672/
       LLM_BACKEND: ollama
       OLLAMA_MODEL: gemma4:e2b
+      # Batched chat replies (toggled live by the 'dabichat' redeem / !dabichat).
+      # Dabi answers the room once either threshold trips.
+      DABI_CHAT_BATCH_SIZE: 10
+      DABI_CHAT_BATCH_WINDOW: 30
+      # Comma-separated chatter logins to never batch, e.g. "nightbot,streamelements"
+      DABI_CHAT_IGNORE: ""
     networks:
       - twitchbroadcaster_net
     volumes:

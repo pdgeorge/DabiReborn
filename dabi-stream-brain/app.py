@@ -20,6 +20,8 @@ load_dotenv()
 # Allow shared/ imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "shared"))
 
+from chat_batch import ChatBatch
+from handlers import chat_message
 from llm_service import LLMService
 from router import route
 
@@ -35,11 +37,65 @@ DABI_EXCHANGE = os.getenv("DABI_EXCHANGE", "dabi_events")
 TWITCH_QUEUE_NAME = "dabi_stream_brain"
 DABI_QUEUE_NAME = "dabi_stream_brain_inbound"
 
+# How often the flusher checks whether a chat batch has come due. Well
+# under the batch window — it only needs to be tight enough that the
+# "10 messages piled up" trigger still feels immediate.
+FLUSH_TICK_SECONDS = 0.5
+
 
 class Services:
     def __init__(self):
         mock = os.getenv("MOCK_LLM", "false").lower() == "true"
         self.llm = LLMService(mock=mock)
+        self.chat_batch = ChatBatch()
+
+
+async def _publish(exchange, text: str, event_type: str) -> None:
+    out = aio_pika.Message(
+        body=json.dumps({"text": text}).encode(),
+        type=event_type,
+    )
+    await exchange.publish(out, routing_key="")
+    LOGGER.info("Published %s", event_type)
+
+
+async def _chat_flusher(services: Services, dabi_exchange) -> None:
+    """
+    The single drain point for batched chat.
+
+    Both batch triggers (size and time) only move the deadline; this task
+    is what actually asks Dabi and publishes, so the two can never
+    double-answer the same messages. Runs until cancelled on disconnect.
+    """
+    while True:
+        await asyncio.sleep(FLUSH_TICK_SECONDS)
+
+        batch = services.chat_batch
+        if not batch.due():
+            continue
+
+        generation = batch.generation
+        batch.in_flight = True
+        try:
+            # llm.chat is blocking requests — off-thread so redeems and
+            # Discord messages keep being consumed while Dabi thinks.
+            response_text = await asyncio.to_thread(chat_message.flush, services)
+        except Exception as e:
+            LOGGER.error("Chat batch flush failed: %s", e)
+            continue
+        finally:
+            batch.in_flight = False
+
+        if not response_text:
+            continue
+
+        # A redeem landed mid-call and took the priority pass — this reply
+        # is about messages that were deliberately dropped. Bin it.
+        if batch.generation != generation:
+            LOGGER.info("Discarding batched chat reply — preempted by a redeem")
+            continue
+
+        await _publish(dabi_exchange, response_text, "dabi.tts.ready")
 
 
 async def main():
@@ -89,25 +145,20 @@ async def main():
                             if "image" in str(e).lower() or "Could not process" in str(e):
                                 fallback = "I'm terribly sorry but that image appears to be utterly incomprehensible to my refined visual cortex. Perhaps try a different one?"
                                 response_event_type = "dabi.discord.response" if event_type == "dabi.discord.message" else "dabi.tts.ready"
-                                out = aio_pika.Message(
-                                    body=json.dumps({"text": fallback}).encode(),
-                                    type=response_event_type,
-                                )
-                                await dabi_exchange.publish(out, routing_key="")
-                                LOGGER.info("Published fallback response for failed image")
+                                await _publish(dabi_exchange, fallback, response_event_type)
+                                LOGGER.info("Sent fallback response for failed image")
                             return
 
                         if response_text and response_event_type:
-                            out = aio_pika.Message(
-                                body=json.dumps({"text": response_text}).encode(),
-                                type=response_event_type,
-                            )
-                            await dabi_exchange.publish(out, routing_key="")
-                            LOGGER.info("Published %s", response_event_type)
+                            await _publish(dabi_exchange, response_text, response_event_type)
 
-                await twitch_queue.consume(handle_message)
-                await dabi_queue.consume(handle_message)
-                await asyncio.Future()  # run forever
+                flusher = asyncio.create_task(_chat_flusher(services, dabi_exchange))
+                try:
+                    await twitch_queue.consume(handle_message)
+                    await dabi_queue.consume(handle_message)
+                    await asyncio.Future()  # run forever
+                finally:
+                    flusher.cancel()
 
         except Exception as e:
             LOGGER.error("RabbitMQ error: %s. Retrying in %ds…", e, backoff)
