@@ -16,9 +16,10 @@ LOGGER = logging.getLogger(__name__)
 
 # Maps event type → (handler, response_event_type)
 HANDLERS = {
-    # admin_command only reacts to broadcaster/mod !commands (e.g. !dabireset);
-    # regular chat is ignored. If chat_message.handle is re-enabled, fold it in
-    # as admin_command's fallthrough — one handler per event type.
+    # admin_command handles broadcaster/mod !commands (e.g. !dabireset,
+    # !dabichat) and falls through to chat_message.enqueue for everything
+    # else, which buffers regular chat for a batched reply. Batched replies
+    # are published by the flusher task in app.py, not returned from here.
     "channel.chat.message":  (admin_command.handle,   "dabi.tts.ready"),
     "stream.online":         (stream_online.handle,   "dabi.tts.ready"),
     "dabi.discord.message":  (discord_message.handle, "dabi.discord.response"),
