@@ -5,12 +5,15 @@ Dabi's Discord presence.
 
 - Receives messages in the configured channel → publishes dabi.discord.message to RabbitMQ
 - Consumes dabi.discord.response from RabbitMQ → sends text reply to channel
+- Consumes dabi.discord.announce from RabbitMQ → posts to DISCORD_ANNOUNCE_CHANNEL
+  (default going-live), pinging DISCORD_ANNOUNCE_ROLE (default Watcher)
 - Consumes dabi.tts.ready from RabbitMQ → plays TTS in voice (when voice works)
 
 RabbitMQ:
   Inbound:  dabi_events (fanout)
             - dabi.tts.ready        → {"text": "..."}
             - dabi.discord.response → {"text": "..."}
+            - dabi.discord.announce → {"text": "..."}  (role mention added here)
   Outbound: dabi_events (fanout)
             - dabi.discord.message  → {"text": "...", "username": "...", "images": [...]}
 
@@ -73,6 +76,8 @@ RABBITMQ_URL          = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:
 DABI_EXCHANGE         = os.getenv("DABI_EXCHANGE", "dabi_events")
 REQUIRED_ROLE         = os.getenv("DISCORD_REQUIRED_ROLE", "TheGuyInChargeIGuess")
 LISTEN_CHANNEL        = os.getenv("DISCORD_LISTEN_CHANNEL", "dabi-test")
+ANNOUNCE_CHANNEL      = os.getenv("DISCORD_ANNOUNCE_CHANNEL", "going-live")
+ANNOUNCE_ROLE         = os.getenv("DISCORD_ANNOUNCE_ROLE", "Watcher")
 MAX_ATTACHMENT_BYTES  = int(os.getenv("MAX_ATTACHMENT_BYTES", 8_000_000))
 MAX_GIF_FRAMES        = int(os.getenv("MAX_GIF_FRAMES", 8))
 SIZE_EXCEEDED_MESSAGE = os.getenv(
@@ -220,8 +225,36 @@ async def _send_discord_response(text: str) -> None:
     LOGGER.info("Sent Discord response to #%s", LISTEN_CHANNEL)
 
 
+async def _send_discord_announcement(text: str) -> None:
+    """Post a going-live announcement to the announce channel, pinging the role."""
+    guild = bot.get_guild(DISCORD_GUILD_ID)
+    if not guild:
+        LOGGER.error("Guild %s not found", DISCORD_GUILD_ID)
+        return
+
+    channel = discord.utils.get(guild.text_channels, name=ANNOUNCE_CHANNEL)
+    if not channel:
+        LOGGER.error("Channel #%s not found", ANNOUNCE_CHANNEL)
+        return
+
+    role = discord.utils.get(guild.roles, name=ANNOUNCE_ROLE)
+    if role:
+        text = f"{role.mention} {text}"
+    else:
+        LOGGER.error("Role @%s not found — announcing without a ping", ANNOUNCE_ROLE)
+
+    # Only the announce role may ping — nothing Dabi wrote can @ anyone else.
+    await channel.send(
+        text,
+        allowed_mentions=discord.AllowedMentions(
+            everyone=False, users=False, roles=[role] if role else False
+        ),
+    )
+    LOGGER.info("Sent going-live announcement to #%s", ANNOUNCE_CHANNEL)
+
+
 async def _rabbitmq_consumer() -> None:
-    """Consume dabi_events — handles dabi.tts.ready and dabi.discord.response."""
+    """Consume dabi_events — handles dabi.tts.ready, dabi.discord.response and dabi.discord.announce."""
     LOGGER.info("Connecting RabbitMQ consumer...")
     backoff = 2
     while True:
@@ -258,6 +291,9 @@ async def _rabbitmq_consumer() -> None:
 
                             elif event_type == "dabi.discord.response":
                                 await _send_discord_response(text)
+
+                            elif event_type == "dabi.discord.announce":
+                                await _send_discord_announcement(text)
 
         except Exception as e:
             LOGGER.error("RabbitMQ consumer error: %s — retrying in %ds", e, backoff)
