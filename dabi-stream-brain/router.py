@@ -7,10 +7,12 @@ Add new event types here as Dabi gains new reactions.
 Response routing:
   - Twitch/hotkey events    → publish to dabi_events as dabi.tts.ready (text)
   - Discord message events  → publish to dabi_events as dabi.discord.response (text)
+  - A handler can override its response type by returning (text, event_type)
+    — e.g. !goinglive returns dabi.discord.announce
 """
 
 import logging
-from handlers import chat_message, discord_message, channel_point, admin_command, stream_online
+from handlers import chat_message, discord_message, channel_point, admin_command, stream_online, channel_update
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,6 +24,8 @@ HANDLERS = {
     # are published by the flusher task in app.py, not returned from here.
     "channel.chat.message":  (admin_command.handle,   "dabi.tts.ready"),
     "stream.online":         (stream_online.handle,   "dabi.tts.ready"),
+    # Silent — only remembers the title/category for !goinglive.
+    "channel.update":        (channel_update.handle,  None),
     "dabi.discord.message":  (discord_message.handle, "dabi.discord.response"),
     "channel.channel_points_custom_reward_redemption.add": (channel_point.handle, "dabi.tts.ready"),
     # "channel.subscribe": (subscribe.handle, "dabi.tts.ready"),
@@ -42,5 +46,7 @@ def route(event_type: str, payload: dict, services: object) -> tuple[str | None,
         return None, None
 
     handler, response_event_type = entry
-    response_text = handler(payload, services)
-    return response_text, response_event_type
+    response = handler(payload, services)
+    if isinstance(response, tuple):
+        return response
+    return response, response_event_type

@@ -48,6 +48,8 @@ class Services:
         mock = os.getenv("MOCK_LLM", "false").lower() == "true"
         self.llm = LLMService(mock=mock)
         self.chat_batch = ChatBatch()
+        # Latest title/category from channel.update (see handlers/channel_update.py)
+        self.stream_info = {}
 
 
 async def _publish(exchange, text: str, event_type: str) -> None:

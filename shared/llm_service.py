@@ -214,14 +214,18 @@ class LLMService:
                 "think": False,
                 "options": {
                     "num_predict": 150,
-                    "temperature": 0.7
-                    }
+                    "temperature": 0.7,
+                    # Must match chat()'s num_ctx: a different context size makes
+                    # Ollama reload the whole model (~1 min on the Pi).
+                    "num_ctx": 2048,
+                    },
+                "keep_alive": -1,
             }
             try:
                 resp = requests.post(
                     f"{OLLAMA_BASE_URL}/api/chat",
                     json=payload,
-                    timeout=60,
+                    timeout=120,
                 )
                 resp.raise_for_status()
                 result = resp.json()

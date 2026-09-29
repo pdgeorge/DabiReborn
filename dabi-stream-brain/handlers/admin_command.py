@@ -8,12 +8,13 @@ chat_message.enqueue for batching.
 
 Add a command: write a function taking (event, services) and returning
 the text Dabi should say (or None for silence), then register it in
-COMMANDS.
+COMMANDS. Return a (text, event_type) tuple instead to publish somewhere
+other than Dabi's voice — !goinglive posts to Discord this way.
 """
 
 import logging
 
-from handlers import chat_message
+from handlers import chat_message, going_live
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,10 +55,11 @@ def _cmd_dabichat(event: dict, services: object) -> str | None:
 COMMANDS = {
     "!dabireset": _cmd_dabireset,
     "!dabichat": _cmd_dabichat,
+    "!goinglive": going_live.handle,
 }
 
 
-def handle(payload: dict, services: object) -> str | None:
+def handle(payload: dict, services: object) -> str | tuple[str, str] | None:
     """
     Dispatch admin chat commands; None for anything that isn't one.
     """
