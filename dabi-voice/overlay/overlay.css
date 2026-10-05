@@ -63,7 +63,11 @@ html, body {
 }
 
 #stage.live2d #avatar img,
-#stage.live2d #placeholder { display: none !important; }
+#stage.live2d /* VNyan mode: Dabi is drawn by VNyan, so the page shows no avatar —
+   only the caption (and audio). */
+#stage.vnyan #avatar { display: none; }
+
+#placeholder { display: none !important; }
 
 #stage.live2d #avatar.idle,
 #stage.live2d #avatar.talking { animation: none; }
