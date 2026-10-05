@@ -10,10 +10,16 @@
  *     otherwise from live amplitude (Web Audio analyser)
  *   - caption bubble shows the spoken text
  *
- * The RENDERER is a plug. pngRenderer drives the two-image mouth flap.
- * When the Live2D model arrives, implement the same three methods
- * (setTalking / setMouthShape / setLevel) against the Cubism runtime
- * and swap it in — nothing upstream changes.
+ * The RENDERER is a plug: anything with setTalking / setMouthShape /
+ * setLevel. Chosen by URL query params on the browser source:
+ *   (default)         Live2D model, PNG mouth flap if it fails to load
+ *   ?renderer=vnyan   no on-page avatar; mouth is sent to VNyan instead
+ *     &mouth=binary   DabiOpen / DabiClose triggers (default)
+ *     &mouth=shapes   DabiMouth 0-100 openness per Rhubarb shape
+ *     &blink=off      don't drive the eyes (default: derpy idle blinking)
+ *     &blinkgap=2-6   seconds between blinks (default 30-60; short for testing)
+ *     &vnyan=ws://…   VNyan receiver (default ws://127.0.0.1:8000/vnyan)
+ * Audio and the caption bubble work the same in every mode.
  */
 
 (function () {
@@ -110,11 +116,36 @@
     };
   }
 
-  let renderer = makePngRenderer();
+  const params = new URLSearchParams(window.location.search);
+  const RENDERER = (params.get("renderer") || "live2d").toLowerCase();
+
+  // "2-6" -> [2, 6]; anything else -> undefined (renderer default)
+  function parseRange(text) {
+    const m = /^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*$/.exec(text || "");
+    if (!m) return undefined;
+    const lo = Number(m[1]), hi = Number(m[2]);
+    return hi >= lo ? [lo, hi] : undefined;
+  }
+
+  let renderer;
+  if (RENDERER === "vnyan" && typeof makeVNyanRenderer === "function") {
+    // Dabi lives in VNyan — keep the page to audio + caption only.
+    stageEl.classList.add("vnyan");
+    renderer = makeVNyanRenderer({
+      url: params.get("vnyan") || undefined,
+      mode: (params.get("mouth") || "binary").toLowerCase(),
+      blink: params.get("blink") !== "off",
+      blinkGap: parseRange(params.get("blinkgap")),
+      report: report,
+    });
+    report({ event: "renderer", renderer: "vnyan" });
+  } else {
+    renderer = makePngRenderer();
+  }
 
   // Live2D upgrade: swap the renderer in place if the model loads.
   // Same three methods, nothing else changes; failures keep the PNG flap.
-  if (typeof makeLive2DRenderer === "function") {
+  if (RENDERER !== "vnyan" && typeof makeLive2DRenderer === "function") {
     makeLive2DRenderer({
       modelUrl: "/assets/dabi/Model_@pdgeorge_commission_by_e3maly.model3.json",
       container: avatarEl,
