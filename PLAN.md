@@ -52,7 +52,7 @@ Example: After receiving an "Ask Dabi a question" redeem, the App routes to the 
 
 - `twitch-broadcaster` → RabbitMQ (Twitch events, Pi, separate repo)
 - FastAPI POST /react (pdgeorge.com.au → dabi-stream-brain, password protected)
-- pynput → hotkeys (local machine) → RabbitMQ → dabi-stream-brain
+- Push-to-talk (local machine) → RabbitMQ → dabi-stream-brain: see "Push-to-talk" below. pynput is out, because global hotkeys don't work on KDE Wayland.
 - FastAPI POST /chat (pdgeorge.com.au → dabi-chatroom-brain, public)
 
 ---
@@ -69,3 +69,31 @@ Example: After receiving an "Ask Dabi a question" redeem, the App routes to the 
 | AudioPlayer | Local machine |
 | AvatarService + OBS | Local machine |
 | Hotkey listener | Local machine |
+---
+
+# Push-to-talk (planned, 2026-10-17)
+
+How much Dabi does on stream works in three levels: **mostly redeem-triggered** (already works) → **push-to-talk** when George wants to talk to him directly (this section) → **hand him the stream** while George steps away (the existing `!dabichat` toggle).
+
+```
+PC (cachyowo)                                   Pi
+hotkey ─► record mic ─► faster-whisper ─► text ─► RabbitMQ :5672 ─► dabi-stream-brain ─► dabi.tts.ready ─► dabi-voice ─► OBS
+```
+
+Speech-to-text runs on the PC, not the Pi: the mic is there, the 4070 SUPER transcribes a short clip in well under a second, and the Pi is already busy with Ollama. Only text crosses to the Pi, like everything else in the brain.
+
+**1. PC client (new, small script).** Press the hotkey to start recording the mic, press it again to stop. Transcribe with faster-whisper, reusing the settings from `bob-twitch-chatter/services/transcriber.py` (pinned language, `vad_filter`, `condition_on_previous_text=False`, `no_repeat_ngram_size=3`). Publish `{"text": ...}` with AMQP type `dabi.ptt.message` to the `dabi_events` exchange at `192.168.20.14:5672` (already exposed by `twitch-broadcaster`; pd-streamdeck publishes there the same way). Play a short sound on start and stop so it's obvious when Dabi is listening.
+
+**2. Hotkey.** KDE Wayland blocks global key grabs, so pynput won't work. Plan: a KDE global shortcut runs something like `dabi-ptt toggle`, which signals the running client. KDE shortcuts fire on key press only, so it's a toggle, not hold-to-talk. If hold-to-talk is ever wanted: read the key with `evdev`, which needs the user in the `input` group. A Stream Deck button would also work, but the deck controller runs on the Pi and would need a way to signal the PC client.
+
+**3. Brain handler (`dabi-stream-brain/handlers/ptt.py`).** Modelled on `discord_message.py`: prompt like "George, the streamer, is talking to you directly: <text>", return the reply. Register it in `router.py` as `"dabi.ptt.message": (ptt.handle, "dabi.tts.ready")`. Nothing changes in `dabi-voice`.
+
+**4. Priority.** Bump the chat batch the same way `channel_point.py` does, so a pending batched chat reply is discarded and George gets answered first.
+
+## Speaking, for reference
+
+- `dabi-voice` serves the overlay from the Pi on `:8090`, and OBS loads it as a browser source on the PC, so the audio plays in OBS. With `?renderer=vnyan` the overlay draws nothing and drives the VNyan prop instead (`DabiOpen` / `DabiClose`, blinks).
+- Any TTS works: `dabi-voice` only needs an mp3 from `TTSService.generate()`. Rhubarb makes mouth cues from any audio, and the overlay falls back to volume-driven mouth movement without them. A new voice = a new engine in `shared/tts_service.py` + `shared/dabi.json`.
+- Two ways to make him talk: publish `dabi.tts.ready {"text"}` to `dabi_events` (normal path, after the LLM), or `POST http://192.168.20.14:8090/say {"text"}` (skips the brain; he says exactly that, which suits scripted redebut lines).
+- If the OBS browser source isn't connected, a line is dropped, not queued.
+- Voice: still undecided. Rules: only George's own voice or voices he performs; likely a cartoon voice George performs, then clones. A cloning model would be slow on the Pi, so run it on the PC's GPU and have the new TTS engine call it over the LAN.
