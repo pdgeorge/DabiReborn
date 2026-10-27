@@ -12,7 +12,7 @@ Response routing:
 """
 
 import logging
-from handlers import chat_message, discord_message, channel_point, admin_command, stream_online, channel_update
+from handlers import chat_message, discord_message, channel_point, admin_command, stream_online, channel_update, shop_purchase
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +28,8 @@ HANDLERS = {
     "channel.update":        (channel_update.handle,  None),
     "dabi.discord.message":  (discord_message.handle, "dabi.discord.response"),
     "channel.channel_points_custom_reward_redemption.add": (channel_point.handle, "dabi.tts.ready"),
+    # From twitch-broadcaster's overlay_controller: someone bought from Dabi's shop.
+    "dabi.shop.purchase":    (shop_purchase.handle,   "dabi.tts.ready"),
     # "channel.subscribe": (subscribe.handle, "dabi.tts.ready"),
     # "channel.follow":    (follow.handle,    "dabi.tts.ready"),
 }

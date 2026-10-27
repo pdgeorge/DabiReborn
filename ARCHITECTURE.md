@@ -70,6 +70,7 @@ See `dabi-stream-brain/` and `dabi-voice/` for full detail.
   - `!dabireset` (mods) → wipe Dabi's memory
   - `stream.online` → wipe memory, turn chat replies off, say good morning
 - Discord messages in the listen channel → `dabi-discord` → RabbitMQ (`dabi_events`) → `dabi-stream-brain`
+- A sale in Dabi's shop → `twitch-broadcaster`'s overlay_controller → RabbitMQ (`dabi_events`, `dabi.shop.purchase`) → `dabi-stream-brain` → Dabi thanks the buyer by name, with something about what they bought (`handlers/shop_purchase.py`). The off switch is "Dabi thanks buyers" on twitch-broadcaster's `/admin` Shop tab. The message expires after 2 minutes, so a brain that was down doesn't thank anyone late. Twitch only takes redemptions while you're live, so to hear one offline, `fake_purchase.py` sends a pretend purchase: `docker compose exec dabi-stream-brain python fake_purchase.py pdgeorge shirtA`.
 - `!dabi <x>, <y>` / `!dabi reset` (broadcaster) → `dabi-voice` directly, to move the avatar
 - Future: website react (`pdgeorge.com.au/react`, password protected) and hotkeys (pynput on the local machine)
 
@@ -96,6 +97,7 @@ Twitch event ─► twitch_events ─► dabi-stream-brain ─► LLMService ─
 - `router.py` looks up the handler and its default response type in `HANDLERS`. Most Twitch events default to `dabi.tts.ready`, and Discord messages default to `dabi.discord.response`. A handler can return a `(text, event_type)` tuple to use a different type (for example `!goinglive` → `dabi.discord.announce`).
 - The handler builds a prompt and calls `services.llm.chat(prompt)` (`shared/llm_service.py`), which returns plain text. Example: the "Ask Dabi a question" redeem becomes `"<user> paid channel points to ask: <question>"`.
 - Batched chat is the exception. `chat_message.enqueue` only buffers messages. The `_chat_flusher` task in `app.py` asks the LLM once a batch is due, off-thread via `asyncio.to_thread`. If a redeem landed during that LLM call (`chat_batch.generation` changed), the reply is discarded.
+- `dabi-stream-brain/tests/` has unit tests, with a fake LLM and only the standard library: `cd dabi-stream-brain && python -m unittest discover tests`.
 
 **2. The brain publishes text** (`app.py: _publish`)
 - The message published to `dabi_events` has body `{"text": "<reply>"}` and AMQP `type` = `dabi.tts.ready`. The brain stops here. It never touches audio.
