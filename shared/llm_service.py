@@ -14,6 +14,8 @@ Backends: anthropic (default), ollama, mock
 import json
 import logging
 import os
+import threading
+import time
 import requests
 from typing import Optional, List, Dict, Any
 
@@ -23,6 +25,10 @@ LOGGER = logging.getLogger(__name__)
 ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+
+# How much chat history Ollama gets: up to 8 messages, ~1200 tokens
+HISTORY_MAX_MESSAGES = 8
+HISTORY_MAX_TOKENS = 1200
 
 
 def _trim_conversation_history(messages: List[Dict[str, str]], max_messages: int = 8, max_tokens: int = 1200) -> List[Dict[str, str]]:
@@ -136,28 +142,12 @@ class LLMService:
                     LOGGER.warning("Ollama backend does not yet support images, ignoring")
                     # TODO: Revisit later. When we add a second image-to-text model
                 
-                # Trim history to prevent context window explosion on Pi
-                trimmed_history = _trim_conversation_history(self.history, max_messages=8, max_tokens=1200)
-                
-                # Build messages for Ollama: system prompt as a system message, then history
-                messages = []
-                if self.system_prompt:
-                    messages.append({"role": "system", "content": self.system_prompt})
-                # Use trimmed history instead of full history
-                for msg in trimmed_history:
-                    messages.append({"role": msg["role"], "content": msg["content"]})
-                # Ensure the last message is the user message (already there)
-                payload = {
-                    "model": OLLAMA_MODEL,
-                    "messages": messages,
-                    "stream": False,
-                    "think": False,
-                    "options": {
-                        "num_predict": 150,  # max tokens equivalent
-                        "num_ctx": 2048,     # Smaller context window for Pi performance
-                    },
-                    "keep_alive": -1  # Keep model loaded in memory
-                }
+                # Trim history to prevent context window explosion on Pi.
+                # _cut_history_when_full already keeps it under the limits between
+                # calls, so this only trims when the new message itself is huge.
+                trimmed_history = _trim_conversation_history(
+                    self.history, max_messages=HISTORY_MAX_MESSAGES, max_tokens=HISTORY_MAX_TOKENS)
+                payload = self._ollama_payload(trimmed_history)
                 try:
                     resp = requests.post(
                         f"{OLLAMA_BASE_URL}/api/chat",
@@ -175,13 +165,71 @@ class LLMService:
                 raise ValueError(f"Unsupported backend: {self.backend}")
 
             self.history.append({"role": "assistant", "content": reply})
-            return reply
 
         except Exception as e:
             # Roll back — remove the failed user message from history
             self.history.pop()
             LOGGER.error("LLM call failed, history rolled back: %s", e)
             raise
+
+        if self.backend == "ollama":
+            self._cut_history_when_full()
+        return reply
+
+    def _ollama_payload(self, history: List[Dict[str, str]], num_predict: int = 150) -> Dict[str, Any]:
+        """
+        chat()'s request to Ollama: the system prompt as a system message, then
+        the history. The warm-up sends the same, so it fills the cache chat() reuses.
+        """
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        for msg in history:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+        return {
+            "model": OLLAMA_MODEL,
+            "messages": messages,
+            "stream": False,
+            "think": False,
+            "options": {
+                "num_predict": num_predict,  # max tokens equivalent
+                "num_ctx": 2048,     # Smaller context window for Pi performance
+            },
+            "keep_alive": -1  # Keep model loaded in memory
+        }
+
+    def _cut_history_when_full(self) -> None:
+        """
+        Once the history is full, cut it back to the last exchange in one go,
+        and warm Ollama up on what's left in the background.
+
+        Ollama only re-reads the part of a prompt that differs from the one
+        before. Dropping the oldest message on every call changed the start of
+        every prompt, so the Pi re-read the whole history each time: ~38 s a
+        reply instead of ~11 s. Cut in one go, the start stays the same until
+        the next cut, and the warm-up re-reads it while Dabi is still talking.
+        """
+        total_chars = sum(len(str(m.get('content', ''))) for m in self.history)
+        if len(self.history) < HISTORY_MAX_MESSAGES and total_chars <= HISTORY_MAX_TOKENS * 4:
+            return
+        LOGGER.info("History full (%d messages), cutting it to the last exchange", len(self.history))
+        self.history = self.history[-2:]
+        threading.Thread(target=self._warm_up, args=(list(self.history),), daemon=True).start()
+
+    def _warm_up(self, history: List[Dict[str, str]]) -> None:
+        """
+        Have Ollama read the system prompt and this history now, so the next
+        chat() only reads its own message. The placeholder message gets the
+        prompt up to where the next one starts; its 1-token reply is ignored.
+        """
+        started = time.monotonic()
+        payload = self._ollama_payload(history + [{"role": "user", "content": "..."}], num_predict=1)
+        try:
+            resp = requests.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload, timeout=120)
+            resp.raise_for_status()
+            LOGGER.info("Ollama warm-up done in %.1f s", time.monotonic() - started)
+        except requests.exceptions.RequestException as e:
+            LOGGER.warning("Ollama warm-up failed, the next reply will be slower: %s", e)
 
     def single_shot(self, user_message: str, images: list = None) -> str:
         """Send a message with no history. Does not affect conversation state."""

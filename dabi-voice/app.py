@@ -10,7 +10,7 @@ and animates the avatar.
 Pipeline per event:
   text -> TTSService (engine/voice from dabi.json) -> mp3
        -> ffmpeg -> 16 kHz mono wav
-       -> rhubarb --dialogFile <text> -> mouth cues (A-H, X)
+       -> rhubarb -r phonetic -> mouth cues (A-H, X)
        -> broadcast {"type": "dabi.speak", text, audio_url, duration, mouth_cues}
 
 If Rhubarb is missing or fails, mouth_cues is null and the overlay falls
@@ -39,6 +39,7 @@ map 1:1 to screen pixels):
   TWITCH_EXCHANGE   (default: twitch_events)
   VOICE_HTTP_PORT   (default: 8090)
   RHUBARB_BIN       (default: rhubarb — set to full path if not on PATH)
+  RHUBARB_RECOGNIZER (default: phonetic — pocketSphinx is ~4x slower on the Pi)
   DABI_JSON         (default: shared/dabi.json — name/voice config)
   DABI_POS_X        (optional: initial avatar x in px; needs DABI_POS_Y too)
   DABI_POS_Y        (optional: initial avatar y in px; needs DABI_POS_X too)
@@ -87,6 +88,7 @@ QUEUE_NAME     = "dabi_voice_inbound"
 BODY_QUEUE_NAME = "dabi_voice_body"
 HTTP_PORT      = int(os.getenv("VOICE_HTTP_PORT", "8090"))
 RHUBARB_BIN    = os.getenv("RHUBARB_BIN", "rhubarb")
+RHUBARB_RECOGNIZER = os.getenv("RHUBARB_RECOGNIZER", "phonetic")
 DABI_JSON      = os.getenv("DABI_JSON", os.path.join(SHARED_DIR, "dabi.json"))
 
 BASE_DIR    = Path(__file__).resolve().parent
@@ -200,11 +202,13 @@ async def generate_mouth_cues(mp3_path: str, text: str, stem: str) -> Optional[l
             LOGGER.error("ffmpeg failed: %s", err.strip())
             return None
 
-        # We know the exact text — --dialogFile makes the sync far more accurate
+        # We know the exact text. Only pocketSphinx uses --dialogFile; the
+        # phonetic recognizer ignores it, and on the Pi takes ~1.9 s instead of
+        # ~8 s per 10 s of speech with the mouth opening at nearly the same times.
         dialog_path.write_text(text)
 
         code, err = await _run(
-            [RHUBARB_BIN, "-f", "json",
+            [RHUBARB_BIN, "-f", "json", "-r", RHUBARB_RECOGNIZER,
              "--dialogFile", str(dialog_path),
              "-o", str(cues_path), str(wav_path)],
             timeout=90,
