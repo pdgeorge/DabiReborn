@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Dabi Voice Overlay</title>
   <link rel="stylesheet" href="/overlay.css" />
+  <!-- ?renderer=3d loads dabi3d-renderer.js, which imports three.js from here. -->
+  <script type="importmap">
+    { "imports": { "three": "/assets/vendor/three/three.module.min.js",
+                   "three/addons/": "/assets/vendor/three/addons/" } }
+  </script>
 </head>
 <body>
   <div id="stage">

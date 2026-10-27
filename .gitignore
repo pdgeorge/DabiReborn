@@ -2,6 +2,10 @@
 *.md
 temp*
 test*
+!dabi-stream-brain/tests/
+!dabi-stream-brain/tests/*.py
+!dabi-voice/tests/
+!dabi-voice/tests/*.py
 tmp/
 
 # Byte-compiled / optimized / DLL files

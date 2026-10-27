@@ -1,5 +1,6 @@
 aio-pika
-edge-tts
+# Edge TTS refuses old versions with a 403; raise this when it does again
+edge-tts>=7.3.1
 fastapi
 uvicorn[standard]
 python-dotenv
