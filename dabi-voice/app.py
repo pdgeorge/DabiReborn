@@ -16,6 +16,10 @@ Pipeline per event:
 If Rhubarb is missing or fails, mouth_cues is null and the overlay falls
 back to amplitude-based mouth flapping — the pipeline still speaks.
 
+Also consumes dabi.body from dabi_events: {"x", "y", "seat"} sends Dabi to
+a spot, {"home": true} back to his own (twitch-broadcaster's controller does
+this when Dabi's shop opens and closes, to put him on the shop's stool).
+
 HTTP:
   GET  /           -> overlay page (add as OBS browser source)
   GET  /audio/...  -> generated audio files
@@ -25,8 +29,9 @@ HTTP:
 Chat commands (broadcaster only, consumed from the twitch_events exchange;
 coordinates are page pixels — make the OBS browser source fullscreen so they
 map 1:1 to screen pixels):
-  !dabi <x>, <y>   -> move the avatar's top-left corner to (x, y)
-  !dabi reset      -> back to DABI_POS_X/Y, or the default centered layout
+  !dabi <x>, <y>   -> his spot is now (x, y): the avatar's top-left corner,
+                      or with ?renderer=3d where his rump goes (he walks there)
+  !dabi reset      -> back to DABI_POS_X/Y, or the default spot
 
 .env keys:
   RABBITMQ_URL
@@ -79,6 +84,7 @@ RABBITMQ_URL    = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"
 DABI_EXCHANGE   = os.getenv("DABI_EXCHANGE", "dabi_events")
 TWITCH_EXCHANGE = os.getenv("TWITCH_EXCHANGE", "twitch_events")
 QUEUE_NAME     = "dabi_voice_inbound"
+BODY_QUEUE_NAME = "dabi_voice_body"
 HTTP_PORT      = int(os.getenv("VOICE_HTTP_PORT", "8090"))
 RHUBARB_BIN    = os.getenv("RHUBARB_BIN", "rhubarb")
 DABI_JSON      = os.getenv("DABI_JSON", os.path.join(SHARED_DIR, "dabi.json"))
@@ -100,8 +106,10 @@ TTS_VOICE  = _dabi_cfg.get("voice", "en-GB-RyanNeural")
 tts = TTSService()
 
 # ---------------------------------------------------------------------------
-# Avatar position (page pixels, top-left of the avatar box; None = the
-# default centered-at-bottom flexbox layout)
+# Avatar position (page pixels: top-left of the avatar box, or in 3D where
+# his rump goes; None = the renderer's default spot). "home" is where !dabi
+# (or DABI_POS_X/Y) put him; dabi.body can send him somewhere else for a
+# while, e.g. the shop's stool, with seat = how far above the floor that is.
 # ---------------------------------------------------------------------------
 def _env_position() -> Optional[dict]:
     x, y = os.getenv("DABI_POS_X"), os.getenv("DABI_POS_Y")
@@ -115,17 +123,22 @@ def _env_position() -> Optional[dict]:
 
 
 INITIAL_POSITION = _env_position()
-avatar_position: Optional[dict] = INITIAL_POSITION
+home_position: Optional[dict] = INITIAL_POSITION
+avatar_position: Optional[dict] = INITIAL_POSITION   # where he is now: home, or where dabi.body sent him
 
 # "!dabi 1800, 800" / "!dabi 1800 800" / "!dabi reset"
 DABI_CMD_RE = re.compile(r"^!dabi\s+(?:(-?\d+)\s*[, ]\s*(-?\d+)|(reset))\s*$", re.I)
 
 
-def _position_payload() -> dict:
+def _position_payload(walk: bool = False) -> dict:
+    """walk: the 3D renderer walks him there; False (a page just connected) puts him there."""
+    p = avatar_position or {}
     return {
         "type": "dabi.position",
-        "x": avatar_position["x"] if avatar_position else None,
-        "y": avatar_position["y"] if avatar_position else None,
+        "x": p.get("x"),
+        "y": p.get("y"),
+        "seat": p.get("seat", 0),
+        "walk": walk,
     }
 
 
@@ -137,7 +150,7 @@ connected_clients: Set[WebSocket] = set()
 
 async def broadcast(message: dict) -> None:
     if not connected_clients:
-        LOGGER.info("No overlay clients connected — dropping speak event")
+        LOGGER.info("No overlay clients connected — dropping %s", message.get("type"))
         return
     payload = json.dumps(message)
     dead = set()
@@ -275,7 +288,7 @@ async def _handle_tts_ready(data: dict) -> None:
 
 async def _handle_chat_message(data: dict) -> None:
     """!dabi <x>, <y> / !dabi reset — broadcaster only."""
-    global avatar_position
+    global avatar_position, home_position
     event = data.get("event") or {}
     text = ((event.get("message") or {}).get("text") or "").strip()
     if not text.lower().startswith("!dabi"):
@@ -293,11 +306,28 @@ async def _handle_chat_message(data: dict) -> None:
         return
 
     if m.group(3):  # reset
-        avatar_position = INITIAL_POSITION
+        home_position = INITIAL_POSITION
     else:
-        avatar_position = {"x": int(m.group(1)), "y": int(m.group(2))}
+        home_position = {"x": int(m.group(1)), "y": int(m.group(2))}
+    avatar_position = home_position
     LOGGER.info("Avatar position -> %s", avatar_position or "default layout")
-    await broadcast(_position_payload())
+    await broadcast(_position_payload(walk=True))
+
+
+async def _handle_body(data: dict) -> None:
+    """dabi.body: {"x", "y", "seat"} sends him to a spot, {"home": true} back home."""
+    global avatar_position
+    if data.get("home"):
+        avatar_position = home_position
+    else:
+        try:
+            avatar_position = {"x": int(data["x"]), "y": int(data["y"]),
+                               "seat": max(0, int(data.get("seat") or 0))}
+        except (KeyError, TypeError, ValueError):
+            LOGGER.warning("Ignoring dabi.body without a usable x and y: %r", data)
+            return
+    LOGGER.info("Dabi walks to %s", avatar_position or "his default spot")
+    await broadcast(_position_payload(walk=True))
 
 
 async def _consume(queue, wanted_type: str, handler) -> None:
@@ -344,13 +374,27 @@ async def _rabbitmq_consumer() -> None:
                 twitch_q = await twitch_ch.declare_queue(exclusive=True)
                 await twitch_q.bind(twitch_ex)
 
+                # Body queue: own channel too, so he sets off while a line is
+                # still being voiced. Durable, but anything older than two
+                # minutes is dropped: a short restart doesn't lose the shop's
+                # walk, and a long one doesn't replay stale ones.
+                body_ch = await connection.channel()
+                body_ex = await body_ch.declare_exchange(
+                    DABI_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
+                )
+                body_q = await body_ch.declare_queue(
+                    BODY_QUEUE_NAME, durable=True, arguments={"x-message-ttl": 120_000}
+                )
+                await body_q.bind(body_ex)
+
                 backoff = 2
                 LOGGER.info("RabbitMQ connected. Waiting for dabi.tts.ready "
-                            "+ channel.chat.message…")
+                            "+ channel.chat.message + dabi.body…")
 
                 consumers = asyncio.gather(
                     _consume(voice_q, "dabi.tts.ready", _handle_tts_ready),
                     _consume(twitch_q, "channel.chat.message", _handle_chat_message),
+                    _consume(body_q, "dabi.body", _handle_body),
                 )
                 try:
                     await consumers

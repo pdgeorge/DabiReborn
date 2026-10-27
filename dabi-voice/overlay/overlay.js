@@ -3,8 +3,10 @@
  *
  * Receives {"type": "dabi.speak", text, audio_url, duration, mouth_cues}
  * over /ws/voice, queues them, and plays one at a time. Also receives
- * {"type": "dabi.position", x, y} (numbers pin the avatar's top-left to
- * that page pixel; nulls restore the default centered layout):
+ * {"type": "dabi.position", x, y, seat, walk} (numbers pin the avatar's
+ * top-left to that page pixel; nulls restore the default centered layout;
+ * in 3D mode x, y is where his rump goes and walk says whether he walks
+ * there or just appears):
  *   - audio plays inside the OBS browser source
  *   - mouth animates from Rhubarb cues when present,
  *     otherwise from live amplitude (Web Audio analyser)
@@ -13,6 +15,9 @@
  * The RENDERER is a plug: anything with setTalking / setMouthShape /
  * setLevel. Chosen by URL query params on the browser source:
  *   (default)         Live2D model, PNG mouth flap if it fails to load
+ *   ?renderer=3d      Dabi's 3D body, drawn on a canvas over the whole page,
+ *                     who walks between spots (dabi3d-renderer.js has the
+ *                     size / tilt / speed / ink / squeak / blinkgap knobs)
  *   ?renderer=vnyan   no on-page avatar; mouth is sent to VNyan instead
  *     &mouth=binary   DabiOpen / DabiClose triggers (default)
  *     &mouth=shapes   DabiMouth 0-100 openness per Rhubarb shape
@@ -139,13 +144,36 @@
       report: report,
     });
     report({ event: "renderer", renderer: "vnyan" });
+  } else if (RENDERER === "3d") {
+    // Until his model loads the page is voice + caption only.
+    stageEl.classList.add("dabi3d");
+    renderer = { setTalking() {}, setMouthShape() {}, setLevel() {} };
+    load3D();
   } else {
     renderer = makePngRenderer();
   }
 
+  // 3D: an ES module (three.js, via the import map in index.html). If it
+  // can't run here, fall back to the PNG flap so there's still a Dabi.
+  function load3D() {
+    import("/dabi3d-renderer.js")
+      .then((m) => m.makeDabi3DRenderer({ container: stageEl, params, report, onAnchor: placeCaption }))
+      .then((dabi3d) => {
+        if (!dabi3d) throw new Error("no WebGL or no model");
+        renderer = dabi3d;
+        if (lastPosition) renderer.moveTo(Object.assign({}, lastPosition, { walk: false }));
+      })
+      .catch((err) => {
+        report({ event: "dabi3d-failed", err: String(err) });
+        stageEl.classList.remove("dabi3d");
+        renderer = makePngRenderer();
+        if (lastPosition) applyPosition(lastPosition);
+      });
+  }
+
   // Live2D upgrade: swap the renderer in place if the model loads.
   // Same three methods, nothing else changes; failures keep the PNG flap.
-  if (RENDERER !== "vnyan" && typeof makeLive2DRenderer === "function") {
+  if (RENDERER !== "vnyan" && RENDERER !== "3d" && typeof makeLive2DRenderer === "function") {
     makeLive2DRenderer({
       modelUrl: "/assets/dabi/Model_@pdgeorge_commission_by_e3maly.model3.json",
       container: avatarEl,
@@ -164,7 +192,15 @@
   // ------------------------------------------------------------------
   // Position
   // ------------------------------------------------------------------
+  let lastPosition = null;
+
   function applyPosition(payload) {
+    lastPosition = payload;
+    if (typeof renderer.moveTo === "function") {
+      renderer.moveTo(payload);
+      return;
+    }
+    if (stageEl.classList.contains("dabi3d")) return;   // still loading: kept for when he's ready
     if (typeof payload.x === "number" && typeof payload.y === "number") {
       stageEl.style.setProperty("--dabi-x", `${payload.x}px`);
       stageEl.style.setProperty("--dabi-y", `${payload.y}px`);
@@ -189,6 +225,14 @@
   function hideCaptionSoon() {
     clearTimeout(captionTimer);
     captionTimer = setTimeout(() => captionEl.classList.add("hidden"), 1200);
+  }
+
+  // 3D mode: the bubble hangs over his head wherever he walks, kept on screen.
+  function placeCaption(x, y) {
+    const half = 248;   // half of --caption-width, plus a margin
+    const w = window.innerWidth;
+    stageEl.style.setProperty("--caption-x", `${Math.min(w - half, Math.max(half, x))}px`);
+    stageEl.style.setProperty("--caption-y", `${Math.max(160, y)}px`);
   }
 
   // ------------------------------------------------------------------
